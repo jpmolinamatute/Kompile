@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 KERNELNAME=$1
-KERNELNAME=${KERNELNAME:-"unknown"}
 VERSION="$(make -s kernelversion)"
 KERNELDIR="/opt/kernel-sources/${VERSION}-${KERNELNAME}"
 configFound=1
@@ -46,6 +45,11 @@ shouldRunOldConfig () {
     vercomp $VERSION $oldVersion
     return $?
 }
+
+if [[ -z $KERNELNAME ]]; then
+    >&2 echo "ERROR: a name for the kernel is needed"
+    exit 2
+fi
 
 if [[ -d $KERNELDIR ]]; then
     echo "=>    make O=$KERNELDIR distclean"
