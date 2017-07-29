@@ -8,9 +8,7 @@ MODULESDIR="/lib/modules/${KERNELVERSION}/kernel/misc"
 SIGNING_SCRIP="${KERNELDIR}/scripts/sign-file"
 KEYPEM="${KERNELDIR}/certs/signing_key.pem"
 KEYX509="${KERNELDIR}/certs/signing_key.x509"
-
-
-
+PARTUUID="$(lsblk -no PARTUUID $(mount | grep " / " | cut -d" " -f1))"
 configFound=1
 
 export CHOST="x86_64-pc-linux-gnu"
@@ -55,7 +53,7 @@ linux /vmlinuz-${KERNELVERSION}
 version ${KERNELVERSION}
 initrd /intel-ucode.img
 initrd /initramfs-${KERNELVERSION}.img
-options rootfstype=ext4 root=PARTUUID=5189f326-0d28-4566-8a15-b3e5f5fea0cd rw
+options rootfstype=ext4 root=PARTUUID=${PARTUUID} rw
 EOF
     ) > /boot/loader/entries/${KERNELVERSION}.conf
 fi

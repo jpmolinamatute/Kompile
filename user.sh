@@ -79,17 +79,19 @@ if [[ $configFound -eq 1 ]]; then
     shouldRunOldConfig
     versionValidation=$?
     if [[ $versionValidation -eq 1 ]]; then
-        echo "=> running olddefconfig xconfig all"
-        make O=${KERNELDIR} olddefconfig xconfig all
-        makeStatus=$?
-    elif [[ $versionValidation -eq 0 ]]; then
-        echo "=> running xconfig all"
-        make O=${KERNELDIR} xconfig all
-        makeStatus=$?
+        whatToRun="olddefconfig"
     elif [[ $versionValidation -eq 2 ]]; then
         >&2 echo "ERROR: you are downgrading your kernel, this is not supported"
         exit 2
     fi
+    if [[ $runXconfig == "true" ]]; then
+        whatToRun="${whatToRun} xconfig"
+    fi
+
+    whatToRun="${whatToRun} all"
+    echo "=> running ${whatToRun}"
+    make V=0 O=${KERNELDIR} $whatToRun
+    makeStatus=$?
 else
     make O=${KERNELDIR} xconfig
     sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${KERNELDIR}/.config
