@@ -5,6 +5,12 @@ VERSION="$(make -s kernelversion)"
 KERNELVERSION="${VERSION}-${KERNELNAME}"
 KERNELDIR="/opt/kernel-sources/${KERNELVERSION}"
 MODULESDIR="/lib/modules/${KERNELVERSION}/kernel/misc"
+SIGNING_SCRIP="${KERNELDIR}/scripts/sign-file"
+KEYPEM="${KERNELDIR}/certs/signing_key.pem"
+KEYX509="${KERNELDIR}/certs/signing_key.x509"
+
+
+
 configFound=1
 
 export CHOST="x86_64-pc-linux-gnu"
@@ -54,22 +60,28 @@ EOF
     ) > /boot/loader/entries/${KERNELVERSION}.conf
 fi
 
-dkms remove vboxhost/5.1.22_OSE -k $KERNELVERSION
+
+dkms remove vboxhost/5.1.26_OSE -k $KERNELVERSION
+dkms install vboxhost/5.1.26_OSE -k $KERNELVERSION
 if [[ $? -ne 0 ]]; then
-    >&2 echo "ERROR: Removing DKMS modules failed"
-    exit 2
-fi
-dkms install vboxhost/5.1.24_OSE -k $KERNELVERSION
-if [[ $? -ne 0 ]]; then
-    >&2 echo "ERROR: installing DKMS modules faile"d
+    >&2 echo "ERROR: installing DKMS modules failed"
     exit 2
 fi
 
-cd ${KERNELDIR}
-./scripts/sign-file sha1 ./certs/signing_key.pem ./certs/signing_key.x509 $MODULESDIR/vboxdrv.ko
-./scripts/sign-file sha1 ./certs/signing_key.pem ./certs/signing_key.x509 $MODULESDIR/vboxnetadp.ko
-./scripts/sign-file sha1 ./certs/signing_key.pem ./certs/signing_key.x509 $MODULESDIR/vboxnetflt.ko
-./scripts/sign-file sha1 ./certs/signing_key.pem ./certs/signing_key.x509 $MODULESDIR/vboxpci.ko
+
+if [[ ! -f $KEYPEM ]]; then
+    >&2 echo "ERROR: ${KEYPEM} doesn't exists"
+    exit 2
+fi
+if [[ ! -f $KEYX509 ]]; then
+    >&2 echo "ERROR: ${$KEYX509} doesn't exists"
+    exit 2
+fi
+
+$SIGNING_SCRIP sha1 $KEYPEM $KEYX509 $MODULESDIR/vboxdrv.ko
+$SIGNING_SCRIP sha1 $KEYPEM $KEYX509 $MODULESDIR/vboxnetadp.ko
+$SIGNING_SCRIP sha1 $KEYPEM $KEYX509 $MODULESDIR/vboxnetflt.ko
+$SIGNING_SCRIP sha1 $KEYPEM $KEYX509 $MODULESDIR/vboxpci.ko
 
 echo "=>    Bye!"
 exit 0
