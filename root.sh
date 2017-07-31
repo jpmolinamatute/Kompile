@@ -8,8 +8,10 @@ MODULESDIR="/lib/modules/${KERNELVERSION}/kernel/misc"
 SIGNING_SCRIP="${KERNELDIR}/scripts/sign-file"
 KEYPEM="${KERNELDIR}/certs/signing_key.pem"
 KEYX509="${KERNELDIR}/certs/signing_key.x509"
-PARTUUID="$(lsblk -no PARTUUID $(mount | grep " / " | cut -d" " -f1))"
+PARTUUID="$(lsblk -no PARTUUID,MOUNTPOINT | grep -E " /$" | cut -d' ' -f1)"
 configFound=1
+cpuno=$(grep -Pc "processor\t:" /proc/cpuinfo)
+cpuno=$(($cpuno + 1))
 
 export CHOST="x86_64-pc-linux-gnu"
 export CFLAGS="-march=native -O2 -pipe -msse3"
@@ -31,7 +33,7 @@ if [[ -d /usr/lib/modules/${KERNELVERSION} ]]; then
 fi
 
 echo "=>    Installing Modules and Headers"
-make -j5 O=${KERNELDIR} modules_install headers_install
+make -j $cpuno O=${KERNELDIR} modules_install headers_install
 if [[ $? -ne 0 ]]; then
     >&2 echo "ERROR: Installing Modules and headers failed"
     exit 2

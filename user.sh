@@ -6,6 +6,9 @@ configFound=1
 export CHOST="x86_64-pc-linux-gnu"
 export CFLAGS="-march=native -O2 -pipe -msse3"
 export CXXFLAGS="${CFLAGS}"
+runXconfig="true"
+cpuno=$(grep -Pc "processor\t:" /proc/cpuinfo)
+cpuno=$(($cpuno + 1))
 
 # FROM https://stackoverflow.com/questions/4023830/how-compare-two-strings-in-dot-separated-version-format-in-bash
 # thanks Dennis Williamson
@@ -87,20 +90,24 @@ if [[ $configFound -eq 1 ]]; then
     if [[ $runXconfig == "true" ]]; then
         whatToRun="${whatToRun} xconfig"
     fi
-
-    whatToRun="${whatToRun} all"
-    echo "=> running ${whatToRun}"
-    make V=0 O=${KERNELDIR} $whatToRun
-    makeStatus=$?
 else
+    if [[ $runXconfig == "true" ]]; then
+        whatToRun="xconfig"
+    else
+        whatToRun=""
+        make O=${KERNELDIR} defconfig
+    fi
     make O=${KERNELDIR} xconfig
     sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${KERNELDIR}/.config
-    make O=${KERNELDIR} all
-    makeStatus=$?
 fi
 
+whatToRun="${whatToRun} all"
+echo "=> running ${whatToRun}"
+make -j $cpuno V=0 O=${KERNELDIR} $whatToRun 1> /dev/null 2> ${KERNELDIR}/Error
+makeStatus=$?
+
 if [[ $makeStatus -eq 0 ]]; then
-    echo "Please run root.sh"
+    echo "Please run \"root.sh ${KERNELNAME}\""
 else
     >&2 echo "ERROR: make failed"
 fi
