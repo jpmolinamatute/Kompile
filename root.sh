@@ -12,6 +12,9 @@ PARTUUID="$(lsblk -no PARTUUID,MOUNTPOINT | grep -E " /$" | cut -d' ' -f1)"
 configFound=1
 cpuno=$(grep -Pc "processor\t:" /proc/cpuinfo)
 cpuno=$(($cpuno + 1))
+unalias ls > /dev/null
+vBoxVersion="$(ls -d /usr/src/vboxhost-* | cut -d'-' -f2)"
+vBoxModules=("vboxdrv.ko" "vboxnetadp.ko" "vboxnetflt.ko" "vboxpci.ko")
 
 export CHOST="x86_64-pc-linux-gnu"
 export CFLAGS="-march=native -O2 -pipe -msse3"
@@ -33,7 +36,7 @@ if [[ -d /usr/lib/modules/${KERNELVERSION} ]]; then
 fi
 
 echo "=>    Installing Modules and Headers"
-make -j $cpuno O=${KERNELDIR} modules_install headers_install
+make -j $cpuno O=${KERNELDIR} modules_install headers_install 1> /dev/null 2>> ${KERNELDIR}/Error
 if [[ $? -ne 0 ]]; then
     >&2 echo "ERROR: Installing Modules and headers failed"
     exit 2
@@ -44,7 +47,7 @@ cp -v $KERNELDIR/.config /boot/Config-${KERNELVERSION}
 cp -v $KERNELDIR/System.map /boot/System.map
 cp -v $KERNELDIR/arch/x86_64/boot/bzImage /boot/vmlinuz-${KERNELVERSION}
 echo "=>    Creating iamge"
-mkinitcpio -v -k ${KERNELVERSION} -g /boot/initramfs-${KERNELVERSION}.img
+mkinitcpio -k ${KERNELVERSION} -g /boot/initramfs-${KERNELVERSION}.img
 
 if [[ ! -f /boot/loader/entries/${KERNELVERSION}.conf ]]; then
     echo "=>    Creating entry file"
@@ -60,14 +63,20 @@ EOF
     ) > /boot/loader/entries/${KERNELVERSION}.conf
 fi
 
+echo "=>   Uninstalling old version of vboxhost/${vBoxVersion}"
+dkms uninstall vboxhost/${vBoxVersion} -k $KERNELVERSION
+echo "=>    Removing old version of vboxhost/${vBoxVersion}"
+dkms remove vboxhost/${vBoxVersion} -k $KERNELVERSION
 
-dkms remove vboxhost/5.1.26_OSE -k $KERNELVERSION
-dkms install vboxhost/5.1.26_OSE -k $KERNELVERSION
+echo "=>    Building new version of vboxhost/${vBoxVersion}"
+dkms build vboxhost/${vBoxVersion} -k $KERNELVERSION
+
+echo "=>    Installing new version of vboxhost/${vBoxVersion}"
+dkms install vboxhost/${vBoxVersion} -k $KERNELVERSION
 if [[ $? -ne 0 ]]; then
     >&2 echo "ERROR: installing DKMS modules failed"
     exit 2
 fi
-
 
 if [[ ! -f $KEYPEM ]]; then
     >&2 echo "ERROR: ${KEYPEM} doesn't exists"
@@ -78,10 +87,15 @@ if [[ ! -f $KEYX509 ]]; then
     exit 2
 fi
 
-$SIGNING_SCRIP sha1 $KEYPEM $KEYX509 $MODULESDIR/vboxdrv.ko
-$SIGNING_SCRIP sha1 $KEYPEM $KEYX509 $MODULESDIR/vboxnetadp.ko
-$SIGNING_SCRIP sha1 $KEYPEM $KEYX509 $MODULESDIR/vboxnetflt.ko
-$SIGNING_SCRIP sha1 $KEYPEM $KEYX509 $MODULESDIR/vboxpci.ko
+for module in "${vBoxModules[@]}"; do
+    if [[ -f ${MODULESDIR}/${module} ]]; then
+        echo "=>    Signing module $module"
+        $SIGNING_SCRIP sha1 $KEYPEM $KEYX509 ${MODULESDIR}/${module}
+    else
+        >&2 echo "ERROR: ${MODULESDIR}/${module} doesn't exists"
+        exit 2
+    fi
+done
 
 echo "=>    Bye!"
 exit 0

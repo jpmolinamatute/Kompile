@@ -6,7 +6,7 @@ configFound=1
 export CHOST="x86_64-pc-linux-gnu"
 export CFLAGS="-march=native -O2 -pipe -msse3"
 export CXXFLAGS="${CFLAGS}"
-runXconfig="true"
+runXconfig=
 cpuno=$(grep -Pc "processor\t:" /proc/cpuinfo)
 cpuno=$(($cpuno + 1))
 
@@ -54,6 +54,11 @@ if [[ -z $KERNELNAME ]]; then
     exit 2
 fi
 
+if [[ ! -f ./root.sh ]]; then
+    >&2 echo "Error: ./root.sh file doesn't exists"
+fi
+
+
 if [[ -d $KERNELDIR ]]; then
     echo "=>    make O=$KERNELDIR distclean"
     make O=$KERNELDIR distclean
@@ -65,7 +70,7 @@ fi
 zcat --version > /dev/null
 
 if [[ $? -eq 0 &&  -f /proc/config.gz ]]; then
-    echo "=>   zcat /proc/config.gz > ${KERNELDIR}/.config"
+    echo "=>    zcat /proc/config.gz > ${KERNELDIR}/.config"
     zcat /proc/config.gz > ${KERNELDIR}/.config
 elif [[ -f /boot/config* ]]; then
     >&2 echo "CODE ME, please! I beg you."
@@ -102,12 +107,15 @@ else
 fi
 
 whatToRun="${whatToRun} all"
-echo "=> running ${whatToRun}"
+echo "=>    running ${whatToRun}"
 make -j $cpuno V=0 O=${KERNELDIR} $whatToRun 1> /dev/null 2> ${KERNELDIR}/Error
 makeStatus=$?
 
 if [[ $makeStatus -eq 0 ]]; then
-    echo "Please run \"root.sh ${KERNELNAME}\""
+    # echo "Please run \"root.sh ${KERNELNAME}\""
+    echo "Please press a key to continue"
+    read
+    sudo ./root.sh ${KERNELNAME}
 else
     >&2 echo "ERROR: make failed"
 fi
