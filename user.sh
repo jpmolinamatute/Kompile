@@ -76,15 +76,16 @@ while [ $# -gt 0 ]; do
         KERNELNAME="$1"
         shift
         ;;
+    "--file")
+        shift
+        CONFIGFILE="$1"
+        shift
+        ;;
     *)
-        Usage
-        echo "" >&2
-        Fail "Unknown command-line option $1"
+        echo "Unknown command-line option $1" >&2
         ;;
     esac
 done
-
-KERNELDIR="${KERNELDIR}/${VERSION}-${KERNELNAME}"
 
 if [[ -z $KERNELNAME ]]; then
     >&2 echo "ERROR: a name for the kernel is needed"
@@ -95,6 +96,7 @@ if [[ ! -f ./root.sh ]]; then
     >&2 echo "Error: ./root.sh file doesn't exists"
 fi
 
+KERNELDIR="${KERNELDIR}/${VERSION}-${KERNELNAME}"
 
 if [[ -d $KERNELDIR ]]; then
     echo "=>    make O=$KERNELDIR distclean"
@@ -104,20 +106,24 @@ else
     mkdir ${KERNELDIR}
 fi
 
-zcat --version > /dev/null
 
-if [[ $? -eq 0 &&  -f /proc/config.gz ]]; then
-    echo "=>    zcat /proc/config.gz > ${KERNELDIR}/.config"
-    zcat /proc/config.gz > ${KERNELDIR}/.config
-elif [[ -f /boot/config* ]]; then
-    >&2 echo "CODE ME, please! I beg you."
-    # get the highest config file from all and then cat it to ${KERNELDIR}/.config"
-    exit 2
+if [[ -f $CONFIGFILE ]]; then
+    echo "=>    Config file found: ${CONFIGFILE}"
+    cp $CONFIGFILE ${KERNELDIR}/.config
 else
-    >&2 echo "We couldn't find a config file to use."
-    configFound=0
+    zcat --version > /dev/null 2>&1
+    if [[ $? -eq 0 &&  -f /proc/config.gz ]]; then
+        echo "=>    zcat /proc/config.gz > ${KERNELDIR}/.config"
+        zcat /proc/config.gz > ${KERNELDIR}/.config
+    elif [[ -f /boot/config* ]]; then
+        >&2 echo "CODE ME, please! I beg you."
+        # get the highest config file from all and then cat it to ${KERNELDIR}/.config"
+        exit 2
+    else
+        >&2 echo "We couldn't find a config file to use."
+        configFound=0
+    fi
 fi
-
 
 if [[ $configFound -eq 1 ]]; then
     sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${KERNELDIR}/.config
@@ -150,7 +156,7 @@ make -j $cpuno V=0 O=${KERNELDIR} $whatToRun 1> /dev/null 2> ${KERNELDIR}/Error
 if [[ $? -eq 0 ]]; then
     echo "Please press a key to continue"
     read
-    sudo ./root.sh ${KERNELNAME}
+    sudo ./root.sh ${KERNELNAME} ${KERNELDIR}
     exit $?
 else
     >&2 echo "ERROR: make failed"

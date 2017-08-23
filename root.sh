@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-KERNELNAME=$1
+KERNELNAME="$1"
+KERNELDIR="$2"
 VERSION="$(make -s kernelversion)"
 KERNELVERSION="${VERSION}-${KERNELNAME}"
-KERNELDIR="/opt/kernel-sources/${KERNELVERSION}"
 MODULESDIR="/lib/modules/${KERNELVERSION}/kernel/misc"
 SIGNING_SCRIP="${KERNELDIR}/scripts/sign-file"
 KEYPEM="${KERNELDIR}/certs/signing_key.pem"
