@@ -12,7 +12,7 @@ PARTUUID="$(lsblk -no PARTUUID,MOUNTPOINT | grep -E " /$" | cut -d' ' -f1)"
 configFound=1
 cpuno=$(grep -Pc "processor\t:" /proc/cpuinfo)
 cpuno=$(($cpuno + 1))
-unalias ls > /dev/null
+unalias ls 2> /dev/null
 vBoxVersion="$(ls -d /usr/src/vboxhost-* | cut -d'-' -f2)"
 vBoxModules=("vboxdrv.ko" "vboxnetadp.ko" "vboxnetflt.ko" "vboxpci.ko")
 

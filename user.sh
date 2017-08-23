@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-KERNELNAME=$1
+
 VERSION="$(make -s kernelversion)"
-KERNELDIR="/opt/kernel-sources/${VERSION}-${KERNELNAME}"
+KERNELDIR="/opt/kernel-sources"
 configFound=1
 export CHOST="x86_64-pc-linux-gnu"
 export CFLAGS="-march=native -O2 -pipe -msse3"
 export CXXFLAGS="${CFLAGS}"
-runXconfig=
+RUNXCONFIG="false"
 cpuno=$(grep -Pc "processor\t:" /proc/cpuinfo)
 cpuno=$(($cpuno + 1))
 
@@ -48,6 +48,43 @@ shouldRunOldConfig () {
     vercomp $VERSION $oldVersion
     return $?
 }
+
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+    "--help")
+        Usage
+        exit 0
+        ;;
+    "--verbose")
+        shift
+        # LoggedOut "Turned on verbose output."
+        VERBOSE=1
+        ;;
+    "--edit")
+        shift
+        # LoggedOut "Turned on verbose output."
+        RUNXCONFIG="true"
+        ;;
+    "--path")
+        shift
+        KERNELDIR="$1"
+        shift
+        ;;
+    "--name")
+        shift
+        KERNELNAME="$1"
+        shift
+        ;;
+    *)
+        Usage
+        echo "" >&2
+        Fail "Unknown command-line option $1"
+        ;;
+    esac
+done
+
+KERNELDIR="${KERNELDIR}/${VERSION}-${KERNELNAME}"
 
 if [[ -z $KERNELNAME ]]; then
     >&2 echo "ERROR: a name for the kernel is needed"
@@ -92,11 +129,11 @@ if [[ $configFound -eq 1 ]]; then
         >&2 echo "ERROR: you are downgrading your kernel, this is not supported"
         exit 2
     fi
-    if [[ $runXconfig == "true" ]]; then
+    if [[ $RUNXCONFIG == "true" ]]; then
         whatToRun="${whatToRun} xconfig"
     fi
 else
-    if [[ $runXconfig == "true" ]]; then
+    if [[ $RUNXCONFIG == "true" ]]; then
         whatToRun="xconfig"
     else
         whatToRun=""
@@ -109,15 +146,13 @@ fi
 whatToRun="${whatToRun} all"
 echo "=>    running ${whatToRun}"
 make -j $cpuno V=0 O=${KERNELDIR} $whatToRun 1> /dev/null 2> ${KERNELDIR}/Error
-makeStatus=$?
 
-if [[ $makeStatus -eq 0 ]]; then
-    # echo "Please run \"root.sh ${KERNELNAME}\""
+if [[ $? -eq 0 ]]; then
     echo "Please press a key to continue"
     read
     sudo ./root.sh ${KERNELNAME}
+    exit $?
 else
     >&2 echo "ERROR: make failed"
+    exit 2
 fi
-
-exit $makeStatus
