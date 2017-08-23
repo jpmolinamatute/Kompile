@@ -87,12 +87,32 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-if [[ -z $KERNELNAME ]]; then
+if [[ -n $KERNELNAME ]]; then
+    if [[ -f "/boot/vmlinuz-${VERSION}-${KERNELNAME}" ]]; then
+        echo "A Kernel ${VERSION}-${KERNELNAME} was found!. Do you want to Replace it or Increment it (r, i)"
+        read answer
+        if [[ $answer == "i" || $answer == "I" ]]; then
+            FILES="/boot/vmlinuz-${VERSION}-${KERNELNAME}*"
+            for f in $FILES
+            do
+                trackversion=$(cut -d'-' -f4 <<<$f)
+            done
+
+            if [[ -z $trackversion ]]; then
+                trackversion=1
+            else
+                trackversion=$(($trackversion + 1))
+            fi
+
+            KERNELNAME="${KERNELNAME}-${trackversion}"
+        fi
+    fi
+else
     >&2 echo "ERROR: a name for the kernel is needed"
     exit 2
 fi
 
-if [[ ! -f ./root.sh ]]; then
+if [[ ! -f "./root.sh" ]]; then
     >&2 echo "Error: ./root.sh file doesn't exists"
 fi
 
