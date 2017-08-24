@@ -49,6 +49,46 @@ shouldRunOldConfig () {
     return $?
 }
 
+exitWithError () {
+    local COLOR='\033[0;31m'
+    local NC='\033[0m'
+    echo -e "${COLOR}$1${NC}"
+    exit 2
+}
+
+printLine (){
+    local COLOR='\033[1;32m'
+    local NC='\033[0m'
+    echo -e "${COLOR}=>    $1${NC}"
+}
+
+refineKernelName (){
+    local kernelPath="/boot/vmlinuz-${VERSION}-${KERNELNAME}"
+    if [[ -f $kernelPath ]]; then
+        printLine "A Kernel ${VERSION}-${KERNELNAME} was found!. Do you want to Replace it or Increment it (r, i)"
+        read answer
+
+        if [[ $answer == "i" || $answer == "I" ]]; then
+            local FILES="${kernelPath}*"
+            for f in $FILES
+            do
+                trackversion=$(cut -d'-' -f4 <<<$f)
+            done
+
+            if [[ -z $trackversion ]]; then
+                local trackversion=1
+            else
+                local trackversion=$(($trackversion + 1))
+            fi
+
+            KERNELNAME="${KERNELNAME}-${trackversion}"
+        fi
+    fi
+}
+
+if [[ ! -f "./root.sh" ]]; then
+    exitWithError "Error: ./root.sh file doesn't exists"
+fi
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -82,78 +122,53 @@ while [ $# -gt 0 ]; do
         shift
         ;;
     *)
-        echo "Unknown command-line option $1" >&2
+        exitWithError "Unknown command-line option $1"
         ;;
     esac
 done
 
 if [[ -n $KERNELNAME ]]; then
-    if [[ -f "/boot/vmlinuz-${VERSION}-${KERNELNAME}" ]]; then
-        echo "A Kernel ${VERSION}-${KERNELNAME} was found!. Do you want to Replace it or Increment it (r, i)"
-        read answer
-        if [[ $answer == "i" || $answer == "I" ]]; then
-            FILES="/boot/vmlinuz-${VERSION}-${KERNELNAME}*"
-            for f in $FILES
-            do
-                trackversion=$(cut -d'-' -f4 <<<$f)
-            done
-
-            if [[ -z $trackversion ]]; then
-                trackversion=1
-            else
-                trackversion=$(($trackversion + 1))
-            fi
-
-            KERNELNAME="${KERNELNAME}-${trackversion}"
-        fi
-    fi
+    refineKernelName
 else
-    >&2 echo "ERROR: a name for the kernel is needed"
-    exit 2
-fi
-
-if [[ ! -f "./root.sh" ]]; then
-    >&2 echo "Error: ./root.sh file doesn't exists"
+    exitWithError "ERROR: a name for the kernel is needed"
 fi
 
 KERNELDIR="${KERNELDIR}/${VERSION}-${KERNELNAME}"
 
 if [[ -d $KERNELDIR ]]; then
-    echo "=>    make O=$KERNELDIR distclean"
-    make O=$KERNELDIR distclean
+    printLine "make O=$KERNELDIR distclean"
+    make O=$KERNELDIR distclean 1> /dev/null 2>> ${KERNELDIR}/Error
 else
-    echo "=>    mkdir ${KERNELDIR}"
+    printLine "mkdir ${KERNELDIR}"
     mkdir ${KERNELDIR}
 fi
 
 
 if [[ -f $CONFIGFILE ]]; then
-    echo "=>    Config file found: ${CONFIGFILE}"
+    printLine "Config file found: ${CONFIGFILE}"
     cp $CONFIGFILE ${KERNELDIR}/.config
 else
     zcat --version > /dev/null 2>&1
     if [[ $? -eq 0 &&  -f /proc/config.gz ]]; then
-        echo "=>    zcat /proc/config.gz > ${KERNELDIR}/.config"
+        printLine "zcat /proc/config.gz > ${KERNELDIR}/.config"
         zcat /proc/config.gz > ${KERNELDIR}/.config
     elif [[ -f /boot/config* ]]; then
-        >&2 echo "CODE ME, please! I beg you."
+        exitWithError "CODE ME, please! I beg you."
         # get the highest config file from all and then cat it to ${KERNELDIR}/.config"
-        exit 2
     else
-        >&2 echo "We couldn't find a config file to use."
+        exitWithError "We couldn't find a config file to use."
         configFound=0
     fi
 fi
 
 if [[ $configFound -eq 1 ]]; then
-    sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${KERNELDIR}/.config
+    sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z0-9-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${KERNELDIR}/.config
     shouldRunOldConfig
     versionValidation=$?
     if [[ $versionValidation -eq 1 ]]; then
         whatToRun="olddefconfig"
     elif [[ $versionValidation -eq 2 ]]; then
-        >&2 echo "ERROR: you are downgrading your kernel, this is not supported"
-        exit 2
+        exitWithError "ERROR: you are downgrading your kernel, this is not supported"
     fi
     if [[ $RUNXCONFIG == "true" ]]; then
         whatToRun="${whatToRun} xconfig"
@@ -166,19 +181,18 @@ else
         make O=${KERNELDIR} defconfig
     fi
     make O=${KERNELDIR} xconfig
-    sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${KERNELDIR}/.config
+    sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z0-9-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${KERNELDIR}/.config
 fi
 
 whatToRun="${whatToRun} all"
-echo "=>    running ${whatToRun}"
+printLine "running ${whatToRun}"
 make -j $cpuno V=0 O=${KERNELDIR} $whatToRun 1> /dev/null 2> ${KERNELDIR}/Error
 
 if [[ $? -eq 0 ]]; then
-    echo "Please press a key to continue"
+    printLine "Please press a key to continue"
     read
     sudo ./root.sh ${KERNELNAME} ${KERNELDIR}
     exit $?
 else
-    >&2 echo "ERROR: make failed"
-    exit 2
+    exitWithError "ERROR: make failed"
 fi

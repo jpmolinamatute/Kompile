@@ -20,37 +20,59 @@ export CHOST="x86_64-pc-linux-gnu"
 export CFLAGS="-march=native -O2 -pipe -msse3"
 export CXXFLAGS="${CFLAGS}"
 
-if [[ -z $KERNELNAME ]]; then
-    >&2 echo "ERROR: a name for the kernel is needed"
+exitWithError () {
+    local COLOR='\033[0;31m'
+    local NC='\033[0m'
+    echo -e "${COLOR}$1${NC}"
     exit 2
+}
+
+printLine (){
+    local COLOR='\033[1;32m'
+    local NC='\033[0m'
+    echo -e "${COLOR}=>    $1${NC}"
+}
+
+if [[ -z $KERNELNAME ]]; then
+    exitWithError "ERROR: a name for the kernel is needed"
 fi
 
 if [[ ! -d $KERNELDIR ]]; then
-    >&2 echo "ERROR: $KERNELDIR doesn't exists"
-    exit 2
+    exitWithError "ERROR: $KERNELDIR doesn't exists"
 fi
 
+printLine "Removing config-${KERNELVERSION}, initramfs-${KERNELVERSION}.img, System.map, vmlinuz-${KERNELVERSION}"
+rm -f /boot/{config-${KERNELVERSION},initramfs-${KERNELVERSION}.img,System.map,vmlinuz-${KERNELVERSION}}
+
 if [[ -d /usr/lib/modules/${KERNELVERSION} ]]; then
-    echo "=>    Removing /usr/lib/modules/${KERNELVERSION}"
+    printLine "Removing /usr/lib/modules/${KERNELVERSION} directory"
     rm -rf /usr/lib/modules/${KERNELVERSION}
 fi
 
-echo "=>    Installing Modules and Headers"
+printLine "Installing Modules and Headers"
 make -j $cpuno O=${KERNELDIR} modules_install headers_install 1> /dev/null 2>> ${KERNELDIR}/Error
 if [[ $? -ne 0 ]]; then
-    >&2 echo "ERROR: Installing Modules and headers failed"
-    exit 2
+    exitWithError "ERROR: Installing Modules and headers failed"
+fi
+ls -Alh /lib/modules/4.12.8-ichigo
+
+printLine "Copying $KERNELDIR/.config -> /boot/config-${KERNELVERSION}"
+cp $KERNELDIR/.config /boot/config-${KERNELVERSION}
+
+printLine "Copying $KERNELDIR/System.map -> /boot/System.map"
+cp $KERNELDIR/System.map /boot/System.map
+
+printLine "$KERNELDIR/arch/x86_64/boot/bzImage -> /boot/vmlinuz-${KERNELVERSION}"
+cp $KERNELDIR/arch/x86_64/boot/bzImage /boot/vmlinuz-${KERNELVERSION}
+
+printLine "Creating initramfs-${KERNELVERSION}.img file"
+mkinitcpio -k ${KERNELVERSION} -g /boot/initramfs-${KERNELVERSION}.img
+if [[ $? -ne 0 ]]; then
+    exitWithError "ERROR: mkinitcpio failed"
 fi
 
-rm -vf /boot/{Config-${KERNELVERSION},initramfs-${KERNELVERSION}.img,System.map,vmlinuz-${KERNELVERSION}}
-cp -v $KERNELDIR/.config /boot/Config-${KERNELVERSION}
-cp -v $KERNELDIR/System.map /boot/System.map
-cp -v $KERNELDIR/arch/x86_64/boot/bzImage /boot/vmlinuz-${KERNELVERSION}
-echo "=>    Creating iamge"
-mkinitcpio -k ${KERNELVERSION} -g /boot/initramfs-${KERNELVERSION}.img
-
 if [[ ! -f /boot/loader/entries/${KERNELVERSION}.conf ]]; then
-    echo "=>    Creating entry file"
+    printLine "Creating entry file"
     (
     cat <<EOF
 title Arch Linux
@@ -63,39 +85,35 @@ EOF
     ) > /boot/loader/entries/${KERNELVERSION}.conf
 fi
 
-echo "=>   Uninstalling old version of vboxhost/${vBoxVersion}"
+printLine "Uninstalling old version of vboxhost/${vBoxVersion}"
 dkms uninstall vboxhost/${vBoxVersion} -k $KERNELVERSION
-echo "=>    Removing old version of vboxhost/${vBoxVersion}"
+printLine "Removing old version of vboxhost/${vBoxVersion}"
 dkms remove vboxhost/${vBoxVersion} -k $KERNELVERSION
 
-echo "=>    Building new version of vboxhost/${vBoxVersion}"
+printLine "Building new version of vboxhost/${vBoxVersion}"
 dkms build vboxhost/${vBoxVersion} -k $KERNELVERSION
 
-echo "=>    Installing new version of vboxhost/${vBoxVersion}"
+printLine "Installing new version of vboxhost/${vBoxVersion}"
 dkms install vboxhost/${vBoxVersion} -k $KERNELVERSION
 if [[ $? -ne 0 ]]; then
-    >&2 echo "ERROR: installing DKMS modules failed"
-    exit 2
+    exitWithError "ERROR: installing DKMS modules failed"
 fi
 
 if [[ ! -f $KEYPEM ]]; then
-    >&2 echo "ERROR: ${KEYPEM} doesn't exists"
-    exit 2
+    exitWithError "ERROR: ${KEYPEM} doesn't exists"
 fi
 if [[ ! -f $KEYX509 ]]; then
-    >&2 echo "ERROR: ${$KEYX509} doesn't exists"
-    exit 2
+    exitWithError "ERROR: ${$KEYX509} doesn't exists"
 fi
 
 for module in "${vBoxModules[@]}"; do
     if [[ -f ${MODULESDIR}/${module} ]]; then
-        echo "=>    Signing module $module"
+        printLine "Signing module $module"
         $SIGNING_SCRIP sha1 $KEYPEM $KEYX509 ${MODULESDIR}/${module}
     else
-        >&2 echo "ERROR: ${MODULESDIR}/${module} doesn't exists"
-        exit 2
+        exitWithError "ERROR: ${MODULESDIR}/${module} doesn't exists"
     fi
 done
 
-echo "=>    Bye!"
+printLine "Bye!"
 exit 0
