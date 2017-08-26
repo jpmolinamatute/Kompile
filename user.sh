@@ -59,7 +59,7 @@ exitWithError () {
 printLine (){
     local COLOR='\033[1;32m'
     local NC='\033[0m'
-    echo -e "${COLOR}=>    $1${NC}"
+    echo -e "${COLOR}==>    $1${NC}"
 }
 
 refineKernelName (){

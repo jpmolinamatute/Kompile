@@ -30,7 +30,7 @@ exitWithError () {
 printLine (){
     local COLOR='\033[1;32m'
     local NC='\033[0m'
-    echo -e "${COLOR}=>    $1${NC}"
+    echo -e "${COLOR}==>    $1${NC}"
 }
 
 if [[ -z $KERNELNAME ]]; then
@@ -40,9 +40,6 @@ fi
 if [[ ! -d $KERNELDIR ]]; then
     exitWithError "ERROR: $KERNELDIR doesn't exists"
 fi
-
-printLine "Removing config-${KERNELVERSION}, initramfs-${KERNELVERSION}.img, System.map, vmlinuz-${KERNELVERSION}"
-rm -f /boot/{config-${KERNELVERSION},initramfs-${KERNELVERSION}.img,System.map,vmlinuz-${KERNELVERSION}}
 
 if [[ -d /usr/lib/modules/${KERNELVERSION} ]]; then
     printLine "Removing /usr/lib/modules/${KERNELVERSION} directory"
@@ -54,16 +51,15 @@ make -j $cpuno O=${KERNELDIR} modules_install headers_install 1> /dev/null 2>> $
 if [[ $? -ne 0 ]]; then
     exitWithError "ERROR: Installing Modules and headers failed"
 fi
-ls -Alh /lib/modules/4.12.8-ichigo
 
 printLine "Copying $KERNELDIR/.config -> /boot/config-${KERNELVERSION}"
-cp $KERNELDIR/.config /boot/config-${KERNELVERSION}
+cp --remove-destination $KERNELDIR/.config /boot/config-${KERNELVERSION}
 
 printLine "Copying $KERNELDIR/System.map -> /boot/System.map"
-cp $KERNELDIR/System.map /boot/System.map
+cp --remove-destination $KERNELDIR/System.map /boot/System.map
 
-printLine "$KERNELDIR/arch/x86_64/boot/bzImage -> /boot/vmlinuz-${KERNELVERSION}"
-cp $KERNELDIR/arch/x86_64/boot/bzImage /boot/vmlinuz-${KERNELVERSION}
+printLine "Copying $KERNELDIR/arch/x86_64/boot/bzImage -> /boot/vmlinuz-${KERNELVERSION}"
+cp --remove-destination $KERNELDIR/arch/x86_64/boot/bzImage /boot/vmlinuz-${KERNELVERSION}
 
 printLine "Creating initramfs-${KERNELVERSION}.img file"
 mkinitcpio -k ${KERNELVERSION} -g /boot/initramfs-${KERNELVERSION}.img
@@ -115,5 +111,6 @@ for module in "${vBoxModules[@]}"; do
     fi
 done
 
+printLine "Kernel ${KERNELVERSION} was successfully installed"
 printLine "Bye!"
 exit 0
