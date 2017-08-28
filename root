@@ -51,7 +51,7 @@ make -j $cpuno O=${KERNELDIR} modules_install headers_install 1> /dev/null 2>> $
 if [[ $? -ne 0 ]]; then
     exitWithError "ERROR: Installing Modules and headers failed"
 fi
-
+## REMOVE THIS CODE FROM HERE
 printLine "Copying $KERNELDIR/.config -> /boot/config-${KERNELVERSION}"
 cp --remove-destination $KERNELDIR/.config /boot/config-${KERNELVERSION}
 
@@ -111,6 +111,7 @@ for module in "${vBoxModules[@]}"; do
     fi
 done
 
+### TO HERE
 printLine "Kernel ${KERNELVERSION} was successfully installedl"
 printLine "Bye!"
 exit 0

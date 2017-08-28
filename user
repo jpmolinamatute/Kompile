@@ -7,6 +7,8 @@
 # TODO: validate config file loaded by the user
 # TODO: implement verbose option
 # TODO: implement lspci -k, lsmod and other command in helpful fashion so that the user knows what modules must keep
+# TODO: remove code scepecific to my needs
+
 VERSION="$(make -s kernelversion)"
 KERNELDIR="/opt/kernel-sources"
 configFound=1
@@ -93,8 +95,8 @@ refineKernelName (){
     fi
 }
 
-if [[ ! -f "./root.sh" ]]; then
-    exitWithError "Error: ./root.sh file doesn't exists"
+if [[ ! -f "./root" ]]; then
+    exitWithError "Error: ./root file doesn't exists"
 fi
 
 while [ $# -gt 0 ]; do
@@ -198,7 +200,7 @@ make -j $cpuno V=0 O=${KERNELDIR} $whatToRun 1> /dev/null 2> ${KERNELDIR}/Error
 if [[ $? -eq 0 ]]; then
     printLine "Please press a key to continue"
     read
-    sudo ./root.sh ${KERNELNAME} ${KERNELDIR}
+    sudo ./root ${KERNELNAME} ${KERNELDIR}
     exit $?
 else
     exitWithError "ERROR: make failed"
