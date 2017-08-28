@@ -111,6 +111,6 @@ for module in "${vBoxModules[@]}"; do
     fi
 done
 
-printLine "Kernel ${KERNELVERSION} was successfully installed"
+printLine "Kernel ${KERNELVERSION} was successfully installedl"
 printLine "Bye!"
 exit 0

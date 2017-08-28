@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 
+# TODO: merge user.sh and root.file
+# FIXME: run 'make xconfig' as root but in a regular user session. Right now when running this command as root get Display not found error
+# TODO: download kernel sources from internet
+# TODO: untar linux kernel
+# TODO: validate config file loaded by the user
+# TODO: implement verbose option
+# TODO: implement lspci -k, lsmod and other command in helpful fashion so that the user knows what modules must keep
 VERSION="$(make -s kernelversion)"
 KERNELDIR="/opt/kernel-sources"
 configFound=1
