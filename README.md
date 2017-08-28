@@ -5,11 +5,11 @@ This script is going to attempt to load the config file from the current kernel.
 
 This is a **temporary** procedure to compile your own kernel using these scripts.
 
-1. Download the linux kernel source from https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.12.9.tar.xz.
-2. Untar the linux kernel under /usr/scr.
-3. Change directory to /usr/scr/linux-4.12.9.
-4. Copy ./user and ./root to /usr/scr/linux-4.12.9.
-5. Run ./user as regular user.
+1.  Download the linux kernel source from [https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.12.9.tar.xz](https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.12.9.tar.xz "Linux Kernel") .
+2.  Untar the linux kernel under /usr/scr.
+3.  Change directory to /usr/scr/linux-4.12.9.
+4.  Copy ./user and ./root to /usr/scr/linux-4.12.9.
+5.  Run ./user as regular user.
     ```shell
     ./user.sh --name SOMENAME --edit --path SOMEPATH
     ```
