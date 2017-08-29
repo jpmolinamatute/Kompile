@@ -15,5 +15,5 @@ This is a **temporary** procedure to compile your own kernel using these scripts
     ```
 
 Where SOMENAME is any name that you want to call this new kernel and SOMEPATH is a path where to have the linux headers, this directory must be writtable by the regular user that is running the script. You also have the `--file` option to pass a linux config file other than from the current kernel.  
-6. At some point this script is going to ask you for your password to run the rest of the script as root.  
+6.  At some point this script is going to ask you for your password to run the rest of the script as root.  
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)

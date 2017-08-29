@@ -2,8 +2,6 @@
 
 # TODO: merge user.sh and root.file
 # FIXME: run 'make xconfig' as root but in a regular user session. Right now when running this command as root get Display not found error
-# TODO: download kernel sources from internet
-# TODO: untar linux kernel
 # TODO: validate config file loaded by the user
 # TODO: implement verbose option
 # TODO: implement lspci -k, lsmod and other command in helpful fashion so that the user knows what modules must keep
@@ -61,7 +59,7 @@ shouldRunOldConfig () {
 exitWithError () {
     local COLOR='\033[0;31m'
     local NC='\033[0m'
-    echo -e "${COLOR}$1${NC}"
+    echo -e "${COLOR}ERROR: $1${NC}"
     exit 2
 }
 
@@ -95,8 +93,25 @@ refineKernelName (){
     fi
 }
 
+downloadKernel (){
+    local html="$(wget --output-document - --quiet https://www.kernel.org/ | grep -A 1 "latest_link")"
+    local kernelName="$(echo $html | grep -Eo "linux-[4-9]\.[0-9]+\.?[0-9]*\.tar\.xz")"
+    local mayorVersion="$(echo $kernelName | cut -d'-' -f2 | cut -d'.' -f1)"
+    printLine "Downloading latest Linux Kernel: version found ${kernelName}"
+    wget --https-only https://cdn.kernel.org/pub/linux/kernel/v${mayorVersion}.x/${kernelName} -O /usr/src/${kernelName}
+    if [[ $? -ne 0 ]]; then
+        exitWithError "Downloading ${kernelName} failed"
+    fi
+    printLine "Untaring ${kernelName} failed"
+    tar -xf /usr/src/${kernelName} -C /usr/src
+    if [[ $? -ne 0 ]]; then
+        exitWithError "Untaring ${kernelName} failed"
+    fi
+}
+
+
 if [[ ! -f "./root" ]]; then
-    exitWithError "Error: ./root file doesn't exists"
+    exitWithError "./root file doesn't exists"
 fi
 
 while [ $# -gt 0 ]; do
@@ -114,6 +129,10 @@ while [ $# -gt 0 ]; do
         shift
         # LoggedOut "Turned on verbose output."
         RUNXCONFIG="true"
+        ;;
+    "--download")
+        shift
+        downloadKernel
         ;;
     "--path")
         shift
@@ -136,10 +155,12 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+downloadKernel
+
 if [[ -n $KERNELNAME ]]; then
     refineKernelName
 else
-    exitWithError "ERROR: a name for the kernel is needed"
+    exitWithError "A name for the kernel is needed"
 fi
 
 KERNELDIR="${KERNELDIR}/${VERSION}-${KERNELNAME}"
@@ -177,7 +198,7 @@ if [[ $configFound -eq 1 ]]; then
     if [[ $versionValidation -eq 1 ]]; then
         whatToRun="olddefconfig"
     elif [[ $versionValidation -eq 2 ]]; then
-        exitWithError "ERROR: you are downgrading your kernel, this is not supported"
+        exitWithError "You are downgrading your kernel, this is not supported"
     fi
     if [[ $RUNXCONFIG == "true" ]]; then
         whatToRun="${whatToRun} xconfig"
@@ -203,5 +224,5 @@ if [[ $? -eq 0 ]]; then
     sudo ./root ${KERNELNAME} ${KERNELDIR}
     exit $?
 else
-    exitWithError "ERROR: make failed"
+    exitWithError "make failed"
 fi
