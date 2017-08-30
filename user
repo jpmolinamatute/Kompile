@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
 
+# TODO: merge user.sh and root.file
+# FIXME: run 'make xconfig' as root but in a regular user session. Right now when running this command as root get Display not found error
+# TODO: validate config file loaded by the user
+# TODO: implement verbose option
+# TODO: implement lspci -k, lsmod and other command in helpful fashion so that the user knows what modules must keep
+# TODO: remove code scepecific to my needs
+
 VERSION="$(make -s kernelversion)"
 KERNELDIR="/opt/kernel-sources"
 configFound=1
-RUNXCONFIG="false"
-cpuno=$(grep -Pc "processor\t:" /proc/cpuinfo)
-cpuno=$(($cpuno + 1))
-MODULESDIR="/lib/modules/${KERNELVERSION}/kernel/misc"
-SIGNING_SCRIP="${KERNELDIR}/scripts/sign-file"
-KEYPEM="${KERNELDIR}/certs/signing_key.pem"
-KEYX509="${KERNELDIR}/certs/signing_key.x509"
-PARTUUID="$(lsblk -no PARTUUID,MOUNTPOINT | grep -E " /$" | cut -d' ' -f1)"
-vBoxVersion="$(ls -d /usr/src/vboxhost-* | cut -d'-' -f2)"
-vBoxModules=("vboxdrv.ko" "vboxnetadp.ko" "vboxnetflt.ko" "vboxpci.ko")
 export CHOST="x86_64-pc-linux-gnu"
 export CFLAGS="-march=native -O2 -pipe -msse3"
 export CXXFLAGS="${CFLAGS}"
-unalias ls 2> /dev/null
+RUNXCONFIG="false"
+cpuno=$(grep -Pc "processor\t:" /proc/cpuinfo)
+cpuno=$(($cpuno + 1))
 
 # FROM https://stackoverflow.com/questions/4023830/how-compare-two-strings-in-dot-separated-version-format-in-bash
 # thanks Dennis Williamson
@@ -60,14 +59,14 @@ shouldRunOldConfig () {
 exitWithError () {
     local COLOR='\033[0;31m'
     local NC='\033[0m'
-    echo -e "${COLOR}$1${NC}"
+    echo -e "${COLOR}ERROR: $1${NC}"
     exit 2
 }
 
 printLine (){
     local COLOR='\033[1;32m'
     local NC='\033[0m'
-    echo -e "${COLOR}=>    $1${NC}"
+    echo -e "${COLOR}==>    $1${NC}"
 }
 
 refineKernelName (){
@@ -94,8 +93,25 @@ refineKernelName (){
     fi
 }
 
+downloadKernel (){
+    local html="$(wget --output-document - --quiet https://www.kernel.org/ | grep -A 1 "latest_link")"
+    local kernelName="$(echo $html | grep -Eo "linux-[4-9]\.[0-9]+\.?[0-9]*\.tar\.xz")"
+    local mayorVersion="$(echo $kernelName | cut -d'-' -f2 | cut -d'.' -f1)"
+    printLine "Downloading latest Linux Kernel: version found ${kernelName}"
+    wget --https-only https://cdn.kernel.org/pub/linux/kernel/v${mayorVersion}.x/${kernelName} -O /usr/src/${kernelName}
+    if [[ $? -ne 0 ]]; then
+        exitWithError "Downloading ${kernelName} failed"
+    fi
+    printLine "Untaring ${kernelName} failed"
+    tar -xf /usr/src/${kernelName} -C /usr/src
+    if [[ $? -ne 0 ]]; then
+        exitWithError "Untaring ${kernelName} failed"
+    fi
+}
+
+
 if [[ $EUID -ne 0 ]]; then
-    exitWithError "Please run this script as root"
+    exitWithError "This script must be run as root"
 fi
 
 
@@ -114,6 +130,10 @@ while [ $# -gt 0 ]; do
         shift
         # LoggedOut "Turned on verbose output."
         RUNXCONFIG="true"
+        ;;
+    "--download")
+        shift
+        downloadKernel
         ;;
     "--path")
         shift
@@ -136,10 +156,11 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+
 if [[ -n $KERNELNAME ]]; then
     refineKernelName
 else
-    exitWithError "ERROR: a name for the kernel is needed"
+    exitWithError "A name for the kernel is needed"
 fi
 
 KERNELDIR="${KERNELDIR}/${VERSION}-${KERNELNAME}"
@@ -177,14 +198,14 @@ if [[ $configFound -eq 1 ]]; then
     if [[ $versionValidation -eq 1 ]]; then
         whatToRun="olddefconfig"
     elif [[ $versionValidation -eq 2 ]]; then
-        exitWithError "ERROR: you are downgrading your kernel, this is not supported"
+        exitWithError "You are downgrading your kernel, this is not supported"
     fi
     if [[ $RUNXCONFIG == "true" ]]; then
-        whatToRun="${whatToRun} menuconfig"
+        whatToRun="${whatToRun} xconfig"
     fi
 else
     if [[ $RUNXCONFIG == "true" ]]; then
-        whatToRun="menuconfig"
+        whatToRun="xconfig"
     else
         whatToRun=""
         make O=${KERNELDIR} defconfig
@@ -195,85 +216,13 @@ fi
 
 whatToRun="${whatToRun} all"
 printLine "running ${whatToRun}"
-make -j $cpuno V=0 O=${KERNELDIR} $whatToRun  #1> /dev/null 2> ${KERNELDIR}/Error
-
+make -j $cpuno V=0 O=${KERNELDIR} $whatToRun 1> /dev/null 2> ${KERNELDIR}/Error
 if [[ $? -ne 0 ]]; then
-    exitWithError "ERROR: make ${whatToRun} failed"
+    exitWithError "make failed"
 fi
+printLine "Installing modules"
+make -j $cpuno V=0 O=${KERNELDIR} modules_install headers_install
 
-printLine "Removing config-${KERNELVERSION}, initramfs-${KERNELVERSION}.img, System.map, vmlinuz-${KERNELVERSION}"
-rm -f /boot/{config-${KERNELVERSION},initramfs-${KERNELVERSION}.img,System.map,vmlinuz-${KERNELVERSION}}
-
-if [[ -d /usr/lib/modules/${KERNELVERSION} ]]; then
-    printLine "Removing /usr/lib/modules/${KERNELVERSION} directory"
-    rm -rf /usr/lib/modules/${KERNELVERSION}
-fi
-
-printLine "Installing Modules and Headers"
-make -j $cpuno O=${KERNELDIR} modules_install headers_install 1> /dev/null 2>> ${KERNELDIR}/Error
-if [[ $? -ne 0 ]]; then
-    exitWithError "ERROR: Installing Modules and headers failed"
-fi
-ls -Alh /lib/modules/4.12.8-ichigo
-
-printLine "Copying $KERNELDIR/.config -> /boot/config-${KERNELVERSION}"
-cp $KERNELDIR/.config /boot/config-${KERNELVERSION}
-
-printLine "Copying $KERNELDIR/System.map -> /boot/System.map"
-cp $KERNELDIR/System.map /boot/System.map
-
-printLine "$KERNELDIR/arch/x86_64/boot/bzImage -> /boot/vmlinuz-${KERNELVERSION}"
-cp $KERNELDIR/arch/x86_64/boot/bzImage /boot/vmlinuz-${KERNELVERSION}
-
-printLine "Creating initramfs-${KERNELVERSION}.img file"
-mkinitcpio -k ${KERNELVERSION} -g /boot/initramfs-${KERNELVERSION}.img
-if [[ $? -ne 0 ]]; then
-    exitWithError "ERROR: mkinitcpio failed"
-fi
-
-if [[ ! -f /boot/loader/entries/${KERNELVERSION}.conf ]]; then
-    printLine "Creating entry file"
-    (
-    cat <<EOF
-title Arch Linux
-linux /vmlinuz-${KERNELVERSION}
-version ${KERNELVERSION}
-initrd /intel-ucode.img
-initrd /initramfs-${KERNELVERSION}.img
-options rootfstype=ext4 root=PARTUUID=${PARTUUID} rw
-EOF
-    ) > /boot/loader/entries/${KERNELVERSION}.conf
-fi
-
-printLine "Uninstalling old version of vboxhost/${vBoxVersion}"
-dkms uninstall vboxhost/${vBoxVersion} -k $KERNELVERSION
-printLine "Removing old version of vboxhost/${vBoxVersion}"
-dkms remove vboxhost/${vBoxVersion} -k $KERNELVERSION
-
-printLine "Building new version of vboxhost/${vBoxVersion}"
-dkms build vboxhost/${vBoxVersion} -k $KERNELVERSION
-
-printLine "Installing new version of vboxhost/${vBoxVersion}"
-dkms install vboxhost/${vBoxVersion} -k $KERNELVERSION
-if [[ $? -ne 0 ]]; then
-    exitWithError "ERROR: installing DKMS modules failed"
-fi
-
-if [[ ! -f $KEYPEM ]]; then
-    exitWithError "ERROR: ${KEYPEM} doesn't exists"
-fi
-if [[ ! -f $KEYX509 ]]; then
-    exitWithError "ERROR: ${$KEYX509} doesn't exists"
-fi
-
-for module in "${vBoxModules[@]}"; do
-    if [[ -f ${MODULESDIR}/${module} ]]; then
-        printLine "Signing module $module"
-        $SIGNING_SCRIP sha1 $KEYPEM $KEYX509 ${MODULESDIR}/${module}
-    else
-        exitWithError "ERROR: ${MODULESDIR}/${module} doesn't exists"
-    fi
-done
-
+printLine "Kernel ${KERNELVERSION} was successfully installedl"
 printLine "Bye!"
 exit 0
