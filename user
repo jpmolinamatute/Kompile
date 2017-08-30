@@ -215,14 +215,21 @@ else
 fi
 
 whatToRun="${whatToRun} all"
-printLine "running ${whatToRun}"
-make -j $cpuno V=0 O=${KERNELDIR} $whatToRun 1> /dev/null 2> ${KERNELDIR}/Error
+printLine "make -j $cpuno V=0 O=${KERNELDIR} $whatToRun"
+make -j $cpuno V=0 O=${KERNELDIR} $whatToRun 1> /dev/null 2>> ${KERNELDIR}/Error
 if [[ $? -ne 0 ]]; then
-    exitWithError "make failed"
+    exitWithError "make -j $cpuno V=0 O=${KERNELDIR} $whatToRun"
+fi
+
+if [[ -d /usr/lib/modules/${KERNELVERSION} ]]; then
+    printLine "Removing /usr/lib/modules/${KERNELVERSION} directory"
+    rm -rf /usr/lib/modules/${KERNELVERSION}
 fi
 printLine "Installing modules"
-make -j $cpuno V=0 O=${KERNELDIR} modules_install headers_install
-
+make -j $cpuno V=0 O=${KERNELDIR} modules_install headers_install 1> /dev/null 2>> ${KERNELDIR}/Error
+if [[ $? -ne 0 ]]; then
+    exitWithError "make -j $cpuno V=0 O=${KERNELDIR} modules_install headers_install"
+fi
 printLine "Kernel ${KERNELVERSION} was successfully installedl"
 printLine "Bye!"
 exit 0
