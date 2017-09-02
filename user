@@ -107,6 +107,7 @@ usage(){
                                     saved.
       --name NAME                 : How you want to name this kernel.
       --file PATH                 : Path to a config file.
+      --backup                    : Path to save config file
 EOF
 }
 
@@ -157,6 +158,11 @@ while [ $# -gt 0 ]; do
     "--build")
         shift
         BUILDDIR="$1"
+        shift
+        ;;
+    "--backup")
+        shift
+        toSaveConfig="$1"
         shift
         ;;
     "--target")
@@ -250,6 +256,12 @@ sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z0-9-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELN
 whatToRun="${whatToRun} all"
 printLine "running ${whatToRun}"
 make -j $cpuno V=0 O=${BUILDDIR} $whatToRun 1> /dev/null 2>> ${BUILDDIR}/Error
+
+if [[ -d $toSaveConfig ]]; then
+    printLine "Saving ${BUILDDIR}/.config to $toSaveConfig/config-${VERSION}-${KERNELNAME}"
+    cp --remove-destination ${BUILDDIR}/.config $toSaveConfig/config-${VERSION}-${KERNELNAME}
+fi
+
 
 if [[ $? -eq 0 ]]; then
     printLine "Please press a key to continue"
