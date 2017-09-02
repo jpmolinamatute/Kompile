@@ -254,8 +254,11 @@ fi
 
 sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z0-9-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${BUILDDIR}/.config
 whatToRun="${whatToRun} all"
-printLine "running ${whatToRun}"
-make -j $cpuno V=0 O=${BUILDDIR} $whatToRun 1> /dev/null 2>> ${BUILDDIR}/Error
+printLine "make -j $cpuno V=0 O=${KERNELDIR} $whatToRun"
+make -j $cpuno V=0 O=${KERNELDIR} $whatToRun 1> /dev/null 2>> ${KERNELDIR}/Error
+if [[ $? -ne 0 ]]; then
+    exitWithError "make -j $cpuno V=0 O=${KERNELDIR} $whatToRun"
+fi
 
 if [[ -d $toSaveConfig ]]; then
     printLine "Saving ${BUILDDIR}/.config to $toSaveConfig/config-${VERSION}-${KERNELNAME}"
