@@ -7,7 +7,7 @@
 # TODO: implement lspci -k, lsmod and other command in helpful fashion so that the user knows what modules must keep
 # TODO: remove code scepecific to my needs
 THISSCRIPT="$0"
-BUILDDIR="/opt/kernel-sources"
+BUILDDIR=
 TARGETDIR=
 configFound=1
 export CHOST="x86_64-pc-linux-gnu"
@@ -67,6 +67,19 @@ printLine (){
     local COLOR='\033[1;32m'
     local NC='\033[0m'
     echo -e "${COLOR}==>    $1${NC}"
+}
+
+checkDirectory(){
+    local dir=$1
+    if [[ ${dir: -1} == "/" ]]; then
+        local dir=${dir::${#dir}-1}
+    fi
+    # printLine "Checking ${dir}"
+
+    if [[ ! -d $dir ]]; then
+        exitWithError "Directory $dir doesn\'t exists"
+    fi
+    echo $dir
 }
 
 refineKernelName (){
@@ -130,11 +143,9 @@ downloadKernel (){
     TARGETDIR="/usr/src/${version}"
 }
 
-
 if [[ $EUID -ne 0 ]]; then
     exitWithError "This script must be run as root"
 fi
-
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -158,17 +169,17 @@ while [ $# -gt 0 ]; do
         ;;
     "--build")
         shift
-        BUILDDIR="$1"
+        BUILDDIR="$(checkDirectory "$1")"
         shift
         ;;
     "--backup")
         shift
-        toSaveConfig="$1"
+        TOSAVECONFIG="$(checkDirectory "$1")"
         shift
         ;;
     "--target")
         shift
-        TARGETDIR="$1"
+        TARGETDIR="$(checkDirectory "$1")"
         shift
         ;;
     "--name")
@@ -187,14 +198,12 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+if [[ ! -d $TARGETDIR ]]; then
+    exitWithError "This Directory $TARGETDIR does NOT exists"
+fi
 
-
-if [[ -n $TARGETDIR ]]; then
-    if [[ ! -d $TARGETDIR ]]; then
-        exitWithError "This Directory $TARGETDIR does NOT exists"
-    fi
-else
-    exitWithError "Either use --target-path PATH or --download"
+if [[ ! -d $BUILDDIR ]]; then
+    exitWithError "This Directory $BUILDDIR does NOT exists"
 fi
 
 cd $TARGETDIR
@@ -244,25 +253,26 @@ if [[ $configFound -eq 1 ]]; then
         exitWithError "You are downgrading your kernel, this is not supported"
     fi
     if [[ $RUNXCONFIG == "true" ]]; then
-        whatToRun="${whatToRun} xconfig"
+        whatToRun="${whatToRun} menuconfig"
     fi
 else
-    whatToRun="xconfig"
+    whatToRun="menuconfig"
     printLine "make -j $cpuno V=0 O=${BUILDDIR} defconfig"
     make -j $cpuno V=0 O=${BUILDDIR} defconfig 1> /dev/null 2>> ${BUILDDIR}/Error
 fi
 
 sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z0-9-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${BUILDDIR}/.config
 whatToRun="${whatToRun} all"
-printLine "make -j $cpuno V=0 O=${KERNELDIR} $whatToRun"
-make -j $cpuno V=0 O=${KERNELDIR} $whatToRun 1> /dev/null 2>> ${KERNELDIR}/Error
+
+printLine "make -j $cpuno V=0 O=${BUILDDIR} $whatToRun"
+make -j $cpuno V=0 O=${BUILDDIR} $whatToRun 2>> ${BUILDDIR}/Error
 if [[ $? -ne 0 ]]; then
-    exitWithError "make -j $cpuno V=0 O=${KERNELDIR} $whatToRun"
+    exitWithError "make -j $cpuno V=0 O=${BUILDDIR} $whatToRun"
 fi
 
-if [[ -d $toSaveConfig ]]; then
-    printLine "Saving ${BUILDDIR}/.config to $toSaveConfig/config-${VERSION}-${KERNELNAME}"
-    cp --remove-destination ${BUILDDIR}/.config $toSaveConfig/config-${VERSION}-${KERNELNAME}
+if [[ -d $TOSAVECONFIG ]]; then
+    printLine "Saving ${BUILDDIR}/.config to $TOSAVECONFIG/config-${VERSION}-${KERNELNAME}"
+    cp --remove-destination ${BUILDDIR}/.config $TOSAVECONFIG/config-${VERSION}-${KERNELNAME}
 fi
 
 if [[ -d /usr/lib/modules/${KERNELVERSION} ]]; then
@@ -270,10 +280,10 @@ if [[ -d /usr/lib/modules/${KERNELVERSION} ]]; then
     rm -rf /usr/lib/modules/${KERNELVERSION}
 fi
 printLine "Installing modules"
-make -j $cpuno V=0 O=${KERNELDIR} modules_install headers_install 1> /dev/null 2>> ${KERNELDIR}/Error
+make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install 1> /dev/null 2>> ${BUILDDIR}/Error
 if [[ $? -ne 0 ]]; then
-    exitWithError "make -j $cpuno V=0 O=${KERNELDIR} modules_install headers_install"
+    exitWithError "make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install"
 fi
-printLine "Kernel ${KERNELVERSION} was successfully installedl"
+printLine "Kernel ${KERNELVERSION} was successfully installed"
 printLine "Bye!"
 exit 0
