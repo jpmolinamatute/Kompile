@@ -135,6 +135,7 @@ if [[ ! -f "./root" ]]; then
     exitWithError "./root file doesn't exists"
 fi
 
+
 while [ $# -gt 0 ]; do
     case "$1" in
     "--help")
@@ -204,7 +205,6 @@ if [[ -n $KERNELNAME ]]; then
 else
     exitWithError "A name for the kernel is needed"
 fi
-
 
 BUILDDIR="${BUILDDIR}/${VERSION}-${KERNELNAME}"
 
