@@ -6,16 +6,16 @@
 # TODO: implement verbose option
 # TODO: implement lspci -k, lsmod and other command in helpful fashion so that the user knows what modules must keep
 # TODO: remove code scepecific to my needs
-
-VERSION="$(make -s kernelversion)"
-KERNELDIR="/opt/kernel-sources"
+THISSCRIPT="$0"
+BUILDDIR="/opt/kernel-sources"
+TARGETDIR=
 configFound=1
 export CHOST="x86_64-pc-linux-gnu"
 export CFLAGS="-march=native -O2 -pipe -msse3"
 export CXXFLAGS="${CFLAGS}"
 RUNXCONFIG="false"
 cpuno=$(grep -Pc "processor\t:" /proc/cpuinfo)
-cpuno=$(($cpuno + 1))
+# cpuno=$(($cpuno + 1))
 
 # FROM https://stackoverflow.com/questions/4023830/how-compare-two-strings-in-dot-separated-version-format-in-bash
 # thanks Dennis Williamson
@@ -51,7 +51,7 @@ vercomp () {
 }
 
 shouldRunOldConfig () {
-    oldVersion="$(grep -E "# Linux/x86 [45]\.[0-9]{1,2}\.[0-9]{1,2} Kernel Configuration" ${KERNELDIR}/.config | grep -Eo "[45]\.[0-9]{1,2}\.[0-9]{1,2}")"
+    oldVersion="$(grep -E "# Linux/x86 [45]\.[0-9]{1,2}\.[0-9]{1,2} Kernel Configuration" ${BUILDDIR}/.config | grep -Eo "[45]\.[0-9]{1,2}\.[0-9]{1,2}")"
     vercomp $VERSION $oldVersion
     return $?
 }
@@ -93,10 +93,29 @@ refineKernelName (){
     fi
 }
 
+usage(){
+    cat >&2 <<EOF
+    Usage: $THISSCRIPT [options]
+
+    Options:
+      --help                      : This output.
+      --edit                      : Either or not to run GUI tool to modify config file.
+      --download                  : Either or not to download the kernel sources.
+      --build PATH                : Building directory. This directory is where hearder will be saved
+                                    and the kernel will be built.
+      --target PATH               : Target directory. This directory is where the kernel sources are
+                                    saved.
+      --name NAME                 : How you want to name this kernel.
+      --file PATH                 : Path to a config file.
+      --backup                    : Path to save config file
+EOF
+}
+
 downloadKernel (){
     local html="$(wget --output-document - --quiet https://www.kernel.org/ | grep -A 1 "latest_link")"
     local kernelName="$(echo $html | grep -Eo "linux-[4-9]\.[0-9]+\.?[0-9]*\.tar\.xz")"
     local mayorVersion="$(echo $kernelName | cut -d'-' -f2 | cut -d'.' -f1)"
+    local version="$(echo $kernelName | grep -Eo "linux-[4-9]\.[0-9]+\.?[0-9]")"
     printLine "Downloading latest Linux Kernel: version found ${kernelName}"
     wget --https-only https://cdn.kernel.org/pub/linux/kernel/v${mayorVersion}.x/${kernelName} -O /usr/src/${kernelName}
     if [[ $? -ne 0 ]]; then
@@ -107,6 +126,8 @@ downloadKernel (){
     if [[ $? -ne 0 ]]; then
         exitWithError "Untaring ${kernelName} failed"
     fi
+
+    TARGETDIR="/usr/src/${version}"
 }
 
 
@@ -118,7 +139,7 @@ fi
 while [ $# -gt 0 ]; do
     case "$1" in
     "--help")
-        Usage
+        usage
         exit 0
         ;;
     "--verbose")
@@ -135,9 +156,19 @@ while [ $# -gt 0 ]; do
         shift
         downloadKernel
         ;;
-    "--path")
+    "--build")
         shift
-        KERNELDIR="$1"
+        BUILDDIR="$1"
+        shift
+        ;;
+    "--backup")
+        shift
+        toSaveConfig="$1"
+        shift
+        ;;
+    "--target")
+        shift
+        TARGETDIR="$1"
         shift
         ;;
     "--name")
@@ -157,34 +188,46 @@ while [ $# -gt 0 ]; do
 done
 
 
+
+if [[ -n $TARGETDIR ]]; then
+    if [[ ! -d $TARGETDIR ]]; then
+        exitWithError "This Directory $TARGETDIR does NOT exists"
+    fi
+else
+    exitWithError "Either use --target-path PATH or --download"
+fi
+
+cd $TARGETDIR
+VERSION="$(make -s kernelversion 2> /dev/null)"
+
 if [[ -n $KERNELNAME ]]; then
     refineKernelName
 else
     exitWithError "A name for the kernel is needed"
 fi
 
-KERNELDIR="${KERNELDIR}/${VERSION}-${KERNELNAME}"
+BUILDDIR="${BUILDDIR}/${VERSION}-${KERNELNAME}"
 
-if [[ -d $KERNELDIR ]]; then
-    printLine "make O=$KERNELDIR distclean"
-    make O=$KERNELDIR distclean 1> /dev/null 2>> ${KERNELDIR}/Error
+if [[ -d $BUILDDIR ]]; then
+    printLine "make O=$BUILDDIR distclean"
+    make -j $cpuno V=0 O=$BUILDDIR distclean 1> /dev/null 2>> ${BUILDDIR}/Error
 else
-    printLine "mkdir ${KERNELDIR}"
-    mkdir ${KERNELDIR}
+    printLine "mkdir ${BUILDDIR}"
+    mkdir ${BUILDDIR}
 fi
 
 
 if [[ -f $CONFIGFILE ]]; then
     printLine "Config file found: ${CONFIGFILE}"
-    cp $CONFIGFILE ${KERNELDIR}/.config
+    cp $CONFIGFILE ${BUILDDIR}/.config
 else
     zcat --version > /dev/null 2>&1
     if [[ $? -eq 0 &&  -f /proc/config.gz ]]; then
-        printLine "zcat /proc/config.gz > ${KERNELDIR}/.config"
-        zcat /proc/config.gz > ${KERNELDIR}/.config
+        printLine "zcat /proc/config.gz > ${BUILDDIR}/.config"
+        zcat /proc/config.gz > ${BUILDDIR}/.config
     elif [[ -f /boot/config* ]]; then
         exitWithError "CODE ME, please! I beg you."
-        # get the highest config file from all and then cat it to ${KERNELDIR}/.config"
+        # get the highest config file from all and then cat it to ${BUILDDIR}/.config"
     else
         exitWithError "We couldn't find a config file to use."
         configFound=0
@@ -192,11 +235,11 @@ else
 fi
 
 if [[ $configFound -eq 1 ]]; then
-    sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z0-9-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${KERNELDIR}/.config
     shouldRunOldConfig
     versionValidation=$?
     if [[ $versionValidation -eq 1 ]]; then
-        whatToRun="olddefconfig"
+        printLine "make -j $cpuno V=0 O=${BUILDDIR} olddefconfig"
+        make -j $cpuno V=0 O=${BUILDDIR} olddefconfig 1> /dev/null 2>> ${BUILDDIR}/Error
     elif [[ $versionValidation -eq 2 ]]; then
         exitWithError "You are downgrading your kernel, this is not supported"
     fi
@@ -204,21 +247,22 @@ if [[ $configFound -eq 1 ]]; then
         whatToRun="${whatToRun} xconfig"
     fi
 else
-    if [[ $RUNXCONFIG == "true" ]]; then
-        whatToRun="xconfig"
-    else
-        whatToRun=""
-        make O=${KERNELDIR} defconfig
-    fi
-    make O=${KERNELDIR} xconfig
-    sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z0-9-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${KERNELDIR}/.config
+    whatToRun="xconfig"
+    printLine "make -j $cpuno V=0 O=${BUILDDIR} defconfig"
+    make -j $cpuno V=0 O=${BUILDDIR} defconfig 1> /dev/null 2>> ${BUILDDIR}/Error
 fi
 
+sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z0-9-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${BUILDDIR}/.config
 whatToRun="${whatToRun} all"
 printLine "make -j $cpuno V=0 O=${KERNELDIR} $whatToRun"
 make -j $cpuno V=0 O=${KERNELDIR} $whatToRun 1> /dev/null 2>> ${KERNELDIR}/Error
 if [[ $? -ne 0 ]]; then
     exitWithError "make -j $cpuno V=0 O=${KERNELDIR} $whatToRun"
+fi
+
+if [[ -d $toSaveConfig ]]; then
+    printLine "Saving ${BUILDDIR}/.config to $toSaveConfig/config-${VERSION}-${KERNELNAME}"
+    cp --remove-destination ${BUILDDIR}/.config $toSaveConfig/config-${VERSION}-${KERNELNAME}
 fi
 
 if [[ -d /usr/lib/modules/${KERNELVERSION} ]]; then
