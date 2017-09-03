@@ -1,24 +1,16 @@
 #!/usr/bin/env bash
 
-KERNELNAME="$1"
-KERNELDIR="$2"
-VERSION="$(make -s kernelversion)"
-KERNELVERSION="${VERSION}-${KERNELNAME}"
+KERNELVERSION=$1
+BUILDDIR=$2
 MODULESDIR="/lib/modules/${KERNELVERSION}/kernel/misc"
-SIGNING_SCRIP="${KERNELDIR}/scripts/sign-file"
-KEYPEM="${KERNELDIR}/certs/signing_key.pem"
-KEYX509="${KERNELDIR}/certs/signing_key.x509"
+SIGNING_SCRIP="${BUILDDIR}/scripts/sign-file"
+KEYPEM="${BUILDDIR}/certs/signing_key.pem"
+KEYX509="${BUILDDIR}/certs/signing_key.x509"
 PARTUUID="$(lsblk -no PARTUUID,MOUNTPOINT | grep -E " /$" | cut -d' ' -f1)"
-configFound=1
-cpuno=$(grep -Pc "processor\t:" /proc/cpuinfo)
-cpuno=$(($cpuno + 1))
+
 unalias ls 2> /dev/null
 vBoxVersion="$(ls -d /usr/src/vboxhost-* | cut -d'-' -f2)"
 vBoxModules=("vboxdrv.ko" "vboxnetadp.ko" "vboxnetflt.ko" "vboxpci.ko")
-
-export CHOST="x86_64-pc-linux-gnu"
-export CFLAGS="-march=native -O2 -pipe -msse3"
-export CXXFLAGS="${CFLAGS}"
 
 exitWithError () {
     local COLOR='\033[0;31m'
@@ -33,33 +25,29 @@ printLine (){
     echo -e "${COLOR}==>    $1${NC}"
 }
 
-if [[ -z $KERNELNAME ]]; then
-    exitWithError "ERROR: a name for the kernel is needed"
-fi
 
-if [[ ! -d $KERNELDIR ]]; then
-    exitWithError "ERROR: $KERNELDIR doesn't exists"
-fi
-
-if [[ -d /usr/lib/modules/${KERNELVERSION} ]]; then
-    printLine "Removing /usr/lib/modules/${KERNELVERSION} directory"
-    rm -rf /usr/lib/modules/${KERNELVERSION}
-fi
-
-printLine "Installing Modules and Headers"
-make -j $cpuno O=${KERNELDIR} modules_install headers_install 1> /dev/null 2>> ${KERNELDIR}/Error
-if [[ $? -ne 0 ]]; then
-    exitWithError "ERROR: Installing Modules and headers failed"
-fi
 ## REMOVE THIS CODE FROM HERE
-printLine "Copying $KERNELDIR/.config -> /boot/config-${KERNELVERSION}"
-cp --remove-destination $KERNELDIR/.config /boot/config-${KERNELVERSION}
+if [[ -f $BUILDDIR/.config ]]; then
+    printLine "Copying $BUILDDIR/.config -> /boot/config-${KERNELVERSION}"
+    cp --remove-destination $BUILDDIR/.config /boot/config-${KERNELVERSION}
+else
+    exitWithError "File $BUILDDIR/.config not found"
+fi
 
-printLine "Copying $KERNELDIR/System.map -> /boot/System.map"
-cp --remove-destination $KERNELDIR/System.map /boot/System.map
+if [[ -f $BUILDDIR/System.map ]]; then
+    printLine "Copying $BUILDDIR/System.map -> /boot/System.map"
+    cp --remove-destination $BUILDDIR/System.map /boot/System.map
+else
+    exitWithError "File $BUILDDIR/System.map"
+fi
 
-printLine "Copying $KERNELDIR/arch/x86_64/boot/bzImage -> /boot/vmlinuz-${KERNELVERSION}"
-cp --remove-destination $KERNELDIR/arch/x86_64/boot/bzImage /boot/vmlinuz-${KERNELVERSION}
+if [[ -f $BUILDDIR/arch/x86_64/boot/bzImage ]]; then
+    printLine "Copying $BUILDDIR/arch/x86_64/boot/bzImage -> /boot/vmlinuz-${KERNELVERSION}"
+    cp --remove-destination $BUILDDIR/arch/x86_64/boot/bzImage /boot/vmlinuz-${KERNELVERSION}
+else
+    exitWithError "File $BUILDDIR/arch/x86_64/boot/bzImage"
+fi
+
 
 printLine "Creating initramfs-${KERNELVERSION}.img file"
 mkinitcpio -k ${KERNELVERSION} -g /boot/initramfs-${KERNELVERSION}.img
@@ -110,8 +98,3 @@ for module in "${vBoxModules[@]}"; do
         exitWithError "ERROR: ${MODULESDIR}/${module} doesn't exists"
     fi
 done
-
-### TO HERE
-printLine "Kernel ${KERNELVERSION} was successfully installedl"
-printLine "Bye!"
-exit 0

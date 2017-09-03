@@ -7,7 +7,7 @@
 # TODO: implement lspci -k, lsmod and other command in helpful fashion so that the user knows what modules must keep
 # TODO: remove code scepecific to my needs
 THISSCRIPT="$0"
-BUILDDIR="/opt/kernel-sources"
+BUILDDIR=
 TARGETDIR=
 configFound=1
 export CHOST="x86_64-pc-linux-gnu"
@@ -17,9 +17,9 @@ RUNXCONFIG="false"
 cpuno=$(grep -Pc "processor\t:" /proc/cpuinfo)
 # cpuno=$(($cpuno + 1))
 
-# FROM https://stackoverflow.com/questions/4023830/how-compare-two-strings-in-dot-separated-version-format-in-bash
-# thanks Dennis Williamson
 vercomp () {
+    # FROM https://stackoverflow.com/questions/4023830/how-compare-two-strings-in-dot-separated-version-format-in-bash
+    # thanks Dennis Williamson
     if [[ $1 == $2 ]]
     then
         return 0
@@ -51,8 +51,9 @@ vercomp () {
 }
 
 shouldRunOldConfig () {
-    oldVersion="$(grep -E "# Linux/x86 [45]\.[0-9]{1,2}\.[0-9]{1,2} Kernel Configuration" ${BUILDDIR}/.config | grep -Eo "[45]\.[0-9]{1,2}\.[0-9]{1,2}")"
-    vercomp $VERSION $oldVersion
+    local currentVersion="$1"
+    local oldVersion="$(grep -E "# Linux/x86 [45]\.[0-9]{1,2}\.[0-9]{1,2} Kernel Configuration" ${BUILDDIR}/.config | grep -Eo "[45]\.[0-9]{1,2}\.[0-9]{1,2}")"
+    vercomp $currentVersion $oldVersion
     return $?
 }
 
@@ -69,10 +70,24 @@ printLine (){
     echo -e "${COLOR}==>    $1${NC}"
 }
 
+checkDirectory(){
+    local dir=$1
+    if [[ ${dir: -1} == "/" ]]; then
+        local dir=${dir::${#dir}-1}
+    fi
+
+    if [[ ! -d $dir ]]; then
+        exitWithError "Directory $dir doesn\'t exists"
+    fi
+    echo $dir
+}
+
 refineKernelName (){
-    local kernelPath="/boot/vmlinuz-${VERSION}-${KERNELNAME}"
+    local ver="$1"
+    local kernelPath="/boot/vmlinuz-${ver}-${KERNELNAME}"
+
     if [[ -f $kernelPath ]]; then
-        printLine "A Kernel ${VERSION}-${KERNELNAME} was found!. Do you want to Replace it or Increment it (r, i)"
+        printLine "A Kernel ${name} was found!. Do you want to Replace it or Increment it (r, i)"
         read answer
 
         if [[ $answer == "i" || $answer == "I" ]]; then
@@ -81,13 +96,13 @@ refineKernelName (){
             do
                 trackversion=$(cut -d'-' -f4 <<<$f)
             done
-
+            echo "First $trackversion"
             if [[ -z $trackversion ]]; then
                 local trackversion=1
             else
                 local trackversion=$(($trackversion + 1))
             fi
-
+            echo "Second $trackversion"
             KERNELNAME="${KERNELNAME}-${trackversion}"
         fi
     fi
@@ -130,9 +145,8 @@ downloadKernel (){
     TARGETDIR="/usr/src/${version}"
 }
 
-
-if [[ ! -f "./root" ]]; then
-    exitWithError "./root file doesn't exists"
+if [[ $EUID -ne 0 ]]; then
+    exitWithError "This script must be run as root"
 fi
 
 
@@ -158,17 +172,20 @@ while [ $# -gt 0 ]; do
         ;;
     "--build")
         shift
-        BUILDDIR="$1"
+        printLine "Checking if $1 is a valid directory"
+        BUILDDIR="$(checkDirectory "$1")"
         shift
         ;;
     "--backup")
         shift
-        toSaveConfig="$1"
+        printLine "Checking if $1 is a valid directory"
+        TOSAVECONFIG="$(checkDirectory "$1")"
         shift
         ;;
     "--target")
         shift
-        TARGETDIR="$1"
+        printLine "Checking if $1 is a valid directory"
+        TARGETDIR="$(checkDirectory "$1")"
         shift
         ;;
     "--name")
@@ -187,26 +204,25 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+if [[ -z $TARGETDIR ]]; then
+    exitWithError "--target is undefined"
+fi
 
-
-if [[ -n $TARGETDIR ]]; then
-    if [[ ! -d $TARGETDIR ]]; then
-        exitWithError "This Directory $TARGETDIR does NOT exists"
-    fi
-else
-    exitWithError "Either use --target-path PATH or --download"
+if [[ -z $BUILDDIR ]]; then
+    exitWithError "--build is undefined"
 fi
 
 cd $TARGETDIR
 VERSION="$(make -s kernelversion 2> /dev/null)"
 
 if [[ -n $KERNELNAME ]]; then
-    refineKernelName
+    refineKernelName ${VERSION}
 else
     exitWithError "A name for the kernel is needed"
 fi
 
-BUILDDIR="${BUILDDIR}/${VERSION}-${KERNELNAME}"
+KERNELVERSION="${VERSION}-${KERNELNAME}"
+BUILDDIR="${BUILDDIR}/${KERNELVERSION}"
 
 if [[ -d $BUILDDIR ]]; then
     printLine "make O=$BUILDDIR distclean"
@@ -235,7 +251,7 @@ else
 fi
 
 if [[ $configFound -eq 1 ]]; then
-    shouldRunOldConfig
+    shouldRunOldConfig $VERSION
     versionValidation=$?
     if [[ $versionValidation -eq 1 ]]; then
         printLine "make -j $cpuno V=0 O=${BUILDDIR} olddefconfig"
@@ -244,33 +260,45 @@ if [[ $configFound -eq 1 ]]; then
         exitWithError "You are downgrading your kernel, this is not supported"
     fi
     if [[ $RUNXCONFIG == "true" ]]; then
-        whatToRun="${whatToRun} xconfig"
+        whatToRun="${whatToRun} menuconfig"
     fi
 else
-    whatToRun="xconfig"
+    whatToRun="menuconfig"
     printLine "make -j $cpuno V=0 O=${BUILDDIR} defconfig"
     make -j $cpuno V=0 O=${BUILDDIR} defconfig 1> /dev/null 2>> ${BUILDDIR}/Error
 fi
 
 sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z0-9-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${BUILDDIR}/.config
 whatToRun="${whatToRun} all"
-printLine "make -j $cpuno V=0 O=${KERNELDIR} $whatToRun"
-make -j $cpuno V=0 O=${KERNELDIR} $whatToRun 1> /dev/null 2>> ${KERNELDIR}/Error
+
+printLine "make -j $cpuno V=0 O=${BUILDDIR} $whatToRun"
+make -j $cpuno V=0 O=${BUILDDIR} $whatToRun 2>> ${BUILDDIR}/Error
 if [[ $? -ne 0 ]]; then
-    exitWithError "make -j $cpuno V=0 O=${KERNELDIR} $whatToRun"
+    exitWithError "This command \"make -j $cpuno V=0 O=${BUILDDIR} $whatToRun\" failed"
 fi
 
-if [[ -d $toSaveConfig ]]; then
-    printLine "Saving ${BUILDDIR}/.config to $toSaveConfig/config-${VERSION}-${KERNELNAME}"
-    cp --remove-destination ${BUILDDIR}/.config $toSaveConfig/config-${VERSION}-${KERNELNAME}
+if [[ -d $TOSAVECONFIG ]]; then
+    printLine "Saving ${BUILDDIR}/.config to $TOSAVECONFIG/config-${KERNELVERSION}"
+    cp --remove-destination ${BUILDDIR}/.config $TOSAVECONFIG/config-${KERNELVERSION}
 fi
 
-
-if [[ $? -eq 0 ]]; then
-    printLine "Please press a key to continue"
-    read
-    sudo ./root ${KERNELNAME} ${BUILDDIR}
-    exit $?
-else
-    exitWithError "make failed"
+if [[ -d /usr/lib/modules/${KERNELVERSION} ]]; then
+    printLine "Removing /usr/lib/modules/${KERNELVERSION} directory"
+    rm -rf /usr/lib/modules/${KERNELVERSION}
 fi
+
+printLine "make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install"
+make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install 1> /dev/null 2>> ${BUILDDIR}/Error
+if [[ $? -ne 0 ]]; then
+    exitWithError "This command \"make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install\" failed"
+fi
+
+printLine "Calling /home/juanpa/Projects/compile/root ${KERNELVERSION} ${BUILDDIR}"
+/home/juanpa/Projects/compile/root ${KERNELVERSION} ${BUILDDIR}
+if [[ $? -ne 0 ]]; then
+    exitWithError "This command \"/home/juanpa/Projects/compile/root ${KERNELVERSION} ${BUILDDIR}\" failed"
+fi
+
+printLine "Kernel ${KERNELVERSION} was successfully installed"
+printLine "Bye!"
+exit 0
