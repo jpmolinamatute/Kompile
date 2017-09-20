@@ -13,7 +13,8 @@ configFound=1
 export CHOST="x86_64-pc-linux-gnu"
 export CFLAGS="-march=native -O2 -pipe -msse3"
 export CXXFLAGS="${CFLAGS}"
-RUNXCONFIG="false"
+RUNXCONFIG=0
+GETKERNEL=0
 cpuno=$(grep -Pc "processor\t:" /proc/cpuinfo)
 # cpuno=$(($cpuno + 1))
 
@@ -85,7 +86,7 @@ checkDirectory(){
 refineKernelName (){
     local ver="$1"
     local kernelPath="/boot/vmlinuz-${ver}-${KERNELNAME}"
-
+    echo $kernelPath
     if [[ -f $kernelPath ]]; then
         printLine "A Kernel ${name} was found!. Do you want to Replace it or Increment it (r, i)"
         read answer
@@ -96,13 +97,13 @@ refineKernelName (){
             do
                 trackversion=$(cut -d'-' -f4 <<<$f)
             done
-            echo "First $trackversion"
+
             if [[ -z $trackversion ]]; then
                 local trackversion=1
             else
                 local trackversion=$(($trackversion + 1))
             fi
-            echo "Second $trackversion"
+
             KERNELNAME="${KERNELNAME}-${trackversion}"
         fi
     fi
@@ -131,15 +132,20 @@ downloadKernel (){
     local kernelName="$(echo $html | grep -Eo "linux-[4-9]\.[0-9]+\.?[0-9]*\.tar\.xz")"
     local mayorVersion="$(echo $kernelName | cut -d'-' -f2 | cut -d'.' -f1)"
     local version="$(echo $kernelName | grep -Eo "linux-[4-9]\.[0-9]+\.?[0-9]")"
-    printLine "Downloading latest Linux Kernel: version found ${kernelName}"
-    wget --https-only https://cdn.kernel.org/pub/linux/kernel/v${mayorVersion}.x/${kernelName} -O /usr/src/${kernelName}
-    if [[ $? -ne 0 ]]; then
-        exitWithError "Downloading ${kernelName} failed"
+    local tarFile="/usr/src/${kernelName}"
+
+    if [[ ! -f $tarFile ]]; then
+        printLine "Downloading latest Linux Kernel: version found ${kernelName}"
+        wget --https-only https://cdn.kernel.org/pub/linux/kernel/v${mayorVersion}.x/${kernelName} -O $tarFile
+        if [[ $? -ne 0 ]]; then
+            exitWithError "Downloading ${kernelName} failed"
+        fi
     fi
-    printLine "Untaring ${kernelName} failed"
-    tar -xf /usr/src/${kernelName} -C /usr/src
+
+    printLine "Untaring $tarFile"
+    tar -xf $tarFile -C /usr/src --overwrite
     if [[ $? -ne 0 ]]; then
-        exitWithError "Untaring ${kernelName} failed"
+        exitWithError "Untaring $tarFile failed"
     fi
 
     TARGETDIR="/usr/src/${version}"
@@ -164,11 +170,11 @@ while [ $# -gt 0 ]; do
     "--edit")
         shift
         # LoggedOut "Turned on verbose output."
-        RUNXCONFIG="true"
+        RUNXCONFIG=1
         ;;
     "--download")
         shift
-        downloadKernel
+        GETKERNEL=1
         ;;
     "--build")
         shift
@@ -203,6 +209,11 @@ while [ $# -gt 0 ]; do
         ;;
     esac
 done
+
+
+if [[ $GETKERNEL -eq 1 ]]; then
+    downloadKernel
+fi
 
 if [[ -z $TARGETDIR ]]; then
     exitWithError "--target is undefined"
@@ -259,7 +270,7 @@ if [[ $configFound -eq 1 ]]; then
     elif [[ $versionValidation -eq 2 ]]; then
         exitWithError "You are downgrading your kernel, this is not supported"
     fi
-    if [[ $RUNXCONFIG == "true" ]]; then
+    if [[ $RUNXCONFIG -eq 1 ]]; then
         whatToRun="${whatToRun} menuconfig"
     fi
 else
@@ -292,6 +303,36 @@ make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install 1> /dev/null 2>
 if [[ $? -ne 0 ]]; then
     exitWithError "This command \"make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install\" failed"
 fi
+
+
+if [[ -f $BUILDDIR/.config ]]; then
+    printLine "Copying $BUILDDIR/.config -> /boot/config-${KERNELVERSION}"
+    cp --remove-destination $BUILDDIR/.config /boot/config-${KERNELVERSION}
+else
+    exitWithError "File $BUILDDIR/.config not found"
+fi
+
+if [[ -f $BUILDDIR/System.map ]]; then
+    printLine "Copying $BUILDDIR/System.map -> /boot/System.map"
+    cp --remove-destination $BUILDDIR/System.map /boot/System.map
+else
+    exitWithError "File $BUILDDIR/System.map"
+fi
+
+if [[ -f $BUILDDIR/arch/x86_64/boot/bzImage ]]; then
+    printLine "Copying $BUILDDIR/arch/x86_64/boot/bzImage -> /boot/vmlinuz-${KERNELVERSION}"
+    cp --remove-destination $BUILDDIR/arch/x86_64/boot/bzImage /boot/vmlinuz-${KERNELVERSION}
+else
+    exitWithError "File $BUILDDIR/arch/x86_64/boot/bzImage"
+fi
+
+
+printLine "Creating initramfs-${KERNELVERSION}.img file"
+mkinitcpio -k ${KERNELVERSION} -g /boot/initramfs-${KERNELVERSION}.img
+if [[ $? -ne 0 ]]; then
+    exitWithError "ERROR: mkinitcpio failed"
+fi
+
 
 printLine "Calling /home/juanpa/Projects/compile/root ${KERNELVERSION} ${BUILDDIR}"
 /home/juanpa/Projects/compile/root ${KERNELVERSION} ${BUILDDIR}

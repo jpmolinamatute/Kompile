@@ -27,33 +27,6 @@ printLine (){
 
 
 ## REMOVE THIS CODE FROM HERE
-if [[ -f $BUILDDIR/.config ]]; then
-    printLine "Copying $BUILDDIR/.config -> /boot/config-${KERNELVERSION}"
-    cp --remove-destination $BUILDDIR/.config /boot/config-${KERNELVERSION}
-else
-    exitWithError "File $BUILDDIR/.config not found"
-fi
-
-if [[ -f $BUILDDIR/System.map ]]; then
-    printLine "Copying $BUILDDIR/System.map -> /boot/System.map"
-    cp --remove-destination $BUILDDIR/System.map /boot/System.map
-else
-    exitWithError "File $BUILDDIR/System.map"
-fi
-
-if [[ -f $BUILDDIR/arch/x86_64/boot/bzImage ]]; then
-    printLine "Copying $BUILDDIR/arch/x86_64/boot/bzImage -> /boot/vmlinuz-${KERNELVERSION}"
-    cp --remove-destination $BUILDDIR/arch/x86_64/boot/bzImage /boot/vmlinuz-${KERNELVERSION}
-else
-    exitWithError "File $BUILDDIR/arch/x86_64/boot/bzImage"
-fi
-
-
-printLine "Creating initramfs-${KERNELVERSION}.img file"
-mkinitcpio -k ${KERNELVERSION} -g /boot/initramfs-${KERNELVERSION}.img
-if [[ $? -ne 0 ]]; then
-    exitWithError "ERROR: mkinitcpio failed"
-fi
 
 if [[ ! -f /boot/loader/entries/${KERNELVERSION}.conf ]]; then
     printLine "Creating entry file"
@@ -87,7 +60,7 @@ if [[ ! -f $KEYPEM ]]; then
     exitWithError "ERROR: ${KEYPEM} doesn't exists"
 fi
 if [[ ! -f $KEYX509 ]]; then
-    exitWithError "ERROR: ${$KEYX509} doesn't exists"
+    exitWithError "ERROR: $KEYX509 doesn't exists"
 fi
 
 for module in "${vBoxModules[@]}"; do
