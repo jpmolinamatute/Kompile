@@ -86,7 +86,6 @@ checkDirectory(){
 refineKernelName (){
     local ver="$1"
     local kernelPath="/boot/vmlinuz-${ver}-${KERNELNAME}"
-    echo $kernelPath
     if [[ -f $kernelPath ]]; then
         printLine "A Kernel ${name} was found!. Do you want to Replace it or Increment it (r, i)"
         read answer
@@ -237,7 +236,7 @@ BUILDDIR="${BUILDDIR}/${KERNELVERSION}"
 
 if [[ -d $BUILDDIR ]]; then
     printLine "make O=$BUILDDIR distclean"
-    make -j $cpuno V=0 O=$BUILDDIR distclean 1> /dev/null 2>> ${BUILDDIR}/Error
+    make -j $cpuno V=0 O=$BUILDDIR distclean 2>> ${BUILDDIR}/Error # 1> /dev/null
 else
     printLine "mkdir ${BUILDDIR}"
     mkdir ${BUILDDIR}
@@ -266,20 +265,23 @@ if [[ $configFound -eq 1 ]]; then
     versionValidation=$?
     if [[ $versionValidation -eq 1 ]]; then
         printLine "make -j $cpuno V=0 O=${BUILDDIR} olddefconfig"
-        make -j $cpuno V=0 O=${BUILDDIR} olddefconfig 1> /dev/null 2>> ${BUILDDIR}/Error
+        make -j $cpuno V=0 O=${BUILDDIR} olddefconfig 2>> ${BUILDDIR}/Error # 1> /dev/null
     elif [[ $versionValidation -eq 2 ]]; then
         exitWithError "You are downgrading your kernel, this is not supported"
     fi
     if [[ $RUNXCONFIG -eq 1 ]]; then
-        whatToRun="${whatToRun} menuconfig"
+        whatToRun="${whatToRun} xconfig"
     fi
 else
     whatToRun="menuconfig"
     printLine "make -j $cpuno V=0 O=${BUILDDIR} defconfig"
-    make -j $cpuno V=0 O=${BUILDDIR} defconfig 1> /dev/null 2>> ${BUILDDIR}/Error
+    make -j $cpuno V=0 O=${BUILDDIR} defconfig 2>> ${BUILDDIR}/Error # 1> /dev/null
 fi
 
 sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z0-9-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${BUILDDIR}/.config
+# CONFIG_CMDLINE_OVERRIDE
+# CONFIG_CMDLINE_BOOL
+# CONFIG_CMDLINE
 whatToRun="${whatToRun} all"
 
 printLine "make -j $cpuno V=0 O=${BUILDDIR} $whatToRun"
@@ -299,7 +301,7 @@ if [[ -d /usr/lib/modules/${KERNELVERSION} ]]; then
 fi
 
 printLine "make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install"
-make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install 1> /dev/null 2>> ${BUILDDIR}/Error
+make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install 2>> ${BUILDDIR}/Error # 1> /dev/null
 if [[ $? -ne 0 ]]; then
     exitWithError "This command \"make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install\" failed"
 fi

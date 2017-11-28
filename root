@@ -6,7 +6,7 @@ MODULESDIR="/lib/modules/${KERNELVERSION}/kernel/misc"
 SIGNING_SCRIP="${BUILDDIR}/scripts/sign-file"
 KEYPEM="${BUILDDIR}/certs/signing_key.pem"
 KEYX509="${BUILDDIR}/certs/signing_key.x509"
-PARTUUID="$(lsblk -no PARTUUID,MOUNTPOINT | grep -E " /$" | cut -d' ' -f1)"
+UUID="$(lsblk -no UUID,MOUNTPOINT | grep -E " /$" | cut -d' ' -f1)"
 
 unalias ls 2> /dev/null
 vBoxVersion="$(ls -d /usr/src/vboxhost-* | cut -d'-' -f2)"
@@ -28,19 +28,16 @@ printLine (){
 
 ## REMOVE THIS CODE FROM HERE
 
-if [[ ! -f /boot/loader/entries/${KERNELVERSION}.conf ]]; then
-    printLine "Creating entry file"
-    (
-    cat <<EOF
+
+printLine "Creating entry file"
+(cat <<EOF
 title Arch Linux
 linux /vmlinuz-${KERNELVERSION}
 version ${KERNELVERSION}
 initrd /intel-ucode.img
 initrd /initramfs-${KERNELVERSION}.img
-options rootfstype=ext4 root=PARTUUID=${PARTUUID} rw
 EOF
-    ) > /boot/loader/entries/${KERNELVERSION}.conf
-fi
+) > /boot/loader/entries/${KERNELVERSION}.conf
 
 printLine "Uninstalling old version of vboxhost/${vBoxVersion}"
 dkms uninstall vboxhost/${vBoxVersion} -k $KERNELVERSION
