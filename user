@@ -123,6 +123,7 @@ usage(){
       --name NAME                 : How you want to name this kernel.
       --file PATH                 : Path to a config file.
       --backup                    : Path to save config file
+      --ondone                    : Path to script to execute after $THISSCRIPT
 EOF
 }
 
@@ -150,10 +151,24 @@ downloadKernel (){
     TARGETDIR="/usr/src/${version}"
 }
 
+modifyConfig (){
+    ROOTFSTYPE="$(lsblk -o MOUNTPOINT,FSTYPE,UUID | grep -E "^/ " | awk '{print $2}')"
+    ROOTUUID="$(lsblk -o MOUNTPOINT,FSTYPE,UUID | grep -E "^/ " | awk '{print $3}')"
+    SWAPUUID="$(lsblk -o FSTYPE,UUID | grep -E "^swap " | awk '{print $2}')"
+    TXT="CONFIG_CMDLINE_BOOL=y\n"
+    TXT="${TXT}CONFIG_CMDLINE=\"rootfstype=${ROOTFSTYPE} root=UUID=${ROOTUUID} rw quiet resume=UUID=${SWAPUUID}\"\n"
+    TXT="${TXT}CONFIG_CMDLINE_OVERRIDE=y\n"
+    echo "${BUILDDIR} ${KERNELNAME}"
+    echo -e $TXT
+    sed -Ei "s/^#? ?CONFIG_CMDLINE_OVERRIDE(=[ynm]| is not set)//" ${BUILDDIR}/.config
+    sed -Ei "s/^#? ?CONFIG_CMDLINE[ =].*//" ${BUILDDIR}/.config
+    sed -Ei "s/^#? ?CONFIG_CMDLINE_BOOL(=[ynm]| is not set)/${TXT}/" ${BUILDDIR}/.config
+    sed -Ei "s/^CONFIG_LOCALVERSION=\".*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${BUILDDIR}/.config
+}
+
 if [[ $EUID -ne 0 ]]; then
     exitWithError "This script must be run as root"
 fi
-
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -179,6 +194,11 @@ while [ $# -gt 0 ]; do
         shift
         printLine "Checking if $1 is a valid directory"
         BUILDDIR="$(checkDirectory "$1")"
+        shift
+        ;;
+    "--ondone")
+        shift
+        ONDONE="$(readlink -f $1)"
         shift
         ;;
     "--backup")
@@ -263,25 +283,24 @@ if [[ $configFound -eq 1 ]]; then
     shouldRunOldConfig $VERSION
     versionValidation=$?
     if [[ $versionValidation -eq 1 ]]; then
-        printLine "make -j $cpuno V=0 O=${BUILDDIR} olddefconfig"
-        make -j $cpuno V=0 O=${BUILDDIR} olddefconfig 2>> ${BUILDDIR}/Error # 1> /dev/null
+        whatToRun="menuconfig"
+        # printLine "make -j $cpuno V=0 O=${BUILDDIR} olddefconfig"
+        # make -j $cpuno V=0 O=${BUILDDIR} olddefconfig 2>> ${BUILDDIR}/Error # 1> /dev/null
     elif [[ $versionValidation -eq 2 ]]; then
         exitWithError "You are downgrading your kernel, this is not supported"
+    else
+        whatToRun=""
     fi
     if [[ $RUNXCONFIG -eq 1 ]]; then
         whatToRun="${whatToRun} menuconfig"
     fi
 else
-    whatToRun="menuconfig"
-    printLine "make -j $cpuno V=0 O=${BUILDDIR} defconfig"
-    make -j $cpuno V=0 O=${BUILDDIR} defconfig 2>> ${BUILDDIR}/Error # 1> /dev/null
+    whatToRun="defconfig menuconfig"
+    # printLine "make -j $cpuno V=0 O=${BUILDDIR} "
+    # make -j $cpuno V=0 O=${BUILDDIR} defconfig 2>> ${BUILDDIR}/Error # 1> /dev/null
 fi
 
-sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-zA-Z0-9-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${BUILDDIR}/.config
-
-# sed -Ei "s/^#? ?CONFIG_CMDLINE_OVERRIDE(=[ynm]| is not set)//" ${BUILDDIR}/.config
-# sed -Ei "s/^#? ?CONFIG_CMDLINE(=| is not set)//" ${BUILDDIR}/.config
-# sed -Ei "s/^#? ?CONFIG_CMDLINE_BOOL(=[ynm]| is not set)/${TXT}/" ${BUILDDIR}/.config
+modifyConfig
 
 whatToRun="${whatToRun} all"
 printLine "make -j $cpuno V=0 O=${BUILDDIR} $whatToRun"
@@ -335,12 +354,15 @@ if [[ $? -ne 0 ]]; then
     exitWithError "ERROR: mkinitcpio failed"
 fi
 
-
-printLine "Calling /home/juanpa/Projects/compile/root ${KERNELVERSION} ${BUILDDIR}"
-/home/juanpa/Projects/compile/root ${KERNELVERSION} ${BUILDDIR}
-if [[ $? -ne 0 ]]; then
-    exitWithError "This command \"/home/juanpa/Projects/compile/root ${KERNELVERSION} ${BUILDDIR}\" failed"
+if [[ -x ${ONDONE} ]]; then
+    printLine "Calling ${ONDONE} ${KERNELVERSION} ${BUILDDIR}"
+    ${ONDONE} ${KERNELVERSION} ${BUILDDIR}
+    if [[ $? -ne 0 ]]; then
+        exitWithError "This command \"${ONDONE} ${KERNELVERSION} ${BUILDDIR}\" failed"
+    fi
 fi
+
+
 
 printLine "Kernel ${KERNELVERSION} was successfully installed"
 printLine "Bye!"
