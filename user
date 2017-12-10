@@ -200,7 +200,8 @@ while [ $# -gt 0 ]; do
         ;;
     "--file")
         shift
-        CONFIGFILE="$1"
+        CONFIGFILE="$(readlink -f $1)"
+        echo $CONFIGFILE
         shift
         ;;
     *)
@@ -208,7 +209,6 @@ while [ $# -gt 0 ]; do
         ;;
     esac
 done
-
 
 if [[ $GETKERNEL -eq 1 ]]; then
     downloadKernel
@@ -242,7 +242,6 @@ else
     mkdir ${BUILDDIR}
 fi
 
-
 if [[ -f $CONFIGFILE ]]; then
     printLine "Config file found: ${CONFIGFILE}"
     cp $CONFIGFILE ${BUILDDIR}/.config
@@ -270,7 +269,7 @@ if [[ $configFound -eq 1 ]]; then
         exitWithError "You are downgrading your kernel, this is not supported"
     fi
     if [[ $RUNXCONFIG -eq 1 ]]; then
-        whatToRun="${whatToRun} xconfig"
+        whatToRun="${whatToRun} menuconfig"
     fi
 else
     whatToRun="menuconfig"
@@ -278,12 +277,13 @@ else
     make -j $cpuno V=0 O=${BUILDDIR} defconfig 2>> ${BUILDDIR}/Error # 1> /dev/null
 fi
 
-sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-z0-9-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${BUILDDIR}/.config
-# CONFIG_CMDLINE_OVERRIDE
-# CONFIG_CMDLINE_BOOL
-# CONFIG_CMDLINE
-whatToRun="${whatToRun} all"
+sed -Ei "s/^CONFIG_LOCALVERSION=\"[a-zA-Z0-9-]*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}\"/" ${BUILDDIR}/.config
 
+# sed -Ei "s/^#? ?CONFIG_CMDLINE_OVERRIDE(=[ynm]| is not set)//" ${BUILDDIR}/.config
+# sed -Ei "s/^#? ?CONFIG_CMDLINE(=| is not set)//" ${BUILDDIR}/.config
+# sed -Ei "s/^#? ?CONFIG_CMDLINE_BOOL(=[ynm]| is not set)/${TXT}/" ${BUILDDIR}/.config
+
+whatToRun="${whatToRun} all"
 printLine "make -j $cpuno V=0 O=${BUILDDIR} $whatToRun"
 make -j $cpuno V=0 O=${BUILDDIR} $whatToRun 2>> ${BUILDDIR}/Error
 if [[ $? -ne 0 ]]; then
