@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-KERNELVERSION=$1
-BUILDDIR=$2
+KERNELVERSION="$1"
+BUILDDIR="$2"
 MODULESDIR="/lib/modules/${KERNELVERSION}/kernel/misc"
 SIGNING_SCRIP="${BUILDDIR}/scripts/sign-file"
 KEYPEM="${BUILDDIR}/certs/signing_key.pem"
 KEYX509="${BUILDDIR}/certs/signing_key.x509"
-UUID="$(lsblk -no UUID,MOUNTPOINT | grep -E " /$" | cut -d' ' -f1)"
+# UUID="$(lsblk -no UUID,MOUNTPOINT | grep -E " /$" | cut -d' ' -f1)"
 
 unalias ls 2> /dev/null
 vBoxVersion="$(ls -d /usr/src/vboxhost-* | cut -d'-' -f2)"
@@ -24,10 +24,6 @@ printLine (){
     local NC='\033[0m'
     echo -e "${COLOR}==>    $1${NC}"
 }
-
-
-## REMOVE THIS CODE FROM HERE
-
 
 printLine "Creating entry file"
 (cat <<EOF

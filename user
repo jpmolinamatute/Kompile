@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 
-# TODO: merge user.sh and root.file
-# FIXME: run 'make xconfig' as root but in a regular user session. Right now when running this command as root get Display not found error
 # TODO: validate config file loaded by the user
-# TODO: implement verbose option
 # TODO: implement lspci -k, lsmod and other command in helpful fashion so that the user knows what modules must keep
-# TODO: remove code scepecific to my needs
+
 THISSCRIPT="$0"
 BUILDDIR=
-TARGETDIR=
+SOURCEDIR=
 configFound=1
 export CHOST="x86_64-pc-linux-gnu"
 export CFLAGS="-march=native -O2 -pipe -msse3"
@@ -18,10 +15,10 @@ GETKERNEL=0
 cpuno=$(grep -Pc "processor\t:" /proc/cpuinfo)
 # cpuno=$(($cpuno + 1))
 
-vercomp () {
+vercomp() {
     # FROM https://stackoverflow.com/questions/4023830/how-compare-two-strings-in-dot-separated-version-format-in-bash
     # thanks Dennis Williamson
-    if [[ $1 == $2 ]]
+    if [[ $1 == "$2" ]]
     then
         return 0
     fi
@@ -51,43 +48,43 @@ vercomp () {
     return 0
 }
 
-shouldRunOldConfig () {
+shouldRunOldConfig() {
     local currentVersion="$1"
     local oldVersion="$(grep -E "# Linux/x86 [45]\.[0-9]{1,2}\.[0-9]{1,2} Kernel Configuration" ${BUILDDIR}/.config | grep -Eo "[45]\.[0-9]{1,2}\.[0-9]{1,2}")"
     vercomp $currentVersion $oldVersion
     return $?
 }
 
-exitWithError () {
+exitWithError() {
     local COLOR='\033[0;31m'
     local NC='\033[0m'
-    echo -e "${COLOR}ERROR: $1${NC}"
+    echo -e >&2 "${COLOR}ERROR: $1${NC}"
     exit 2
 }
 
-printLine (){
+printLine() {
     local COLOR='\033[1;32m'
     local NC='\033[0m'
     echo -e "${COLOR}==>    $1${NC}"
 }
 
-checkDirectory(){
+checkDirectory() {
     local dir=$1
     if [[ ${dir: -1} == "/" ]]; then
         local dir=${dir::${#dir}-1}
     fi
 
-    if [[ ! -d $dir ]]; then
-        exitWithError "Directory $dir doesn\'t exists"
+    if [[ ! -d $dir || ! -w $dir ]]; then
+        exitWithError "Directory $dir doesn't exists or it's not writable"
     fi
     echo $dir
 }
 
-refineKernelName (){
+refineKernelName() {
     local ver="$1"
     local kernelPath="/boot/vmlinuz-${ver}-${KERNELNAME}"
     if [[ -f $kernelPath ]]; then
-        printLine "A Kernel ${name} was found!. Do you want to Replace it or Increment it (r, i)"
+        printLine "A Kernel ${KERNELNAME} was found!. Do you want to Replace it or Increment it (r, i)"
         read answer
 
         if [[ $answer == "i" || $answer == "I" ]]; then
@@ -108,7 +105,7 @@ refineKernelName (){
     fi
 }
 
-usage(){
+usage() {
     cat >&2 <<EOF
     Usage: $THISSCRIPT [options]
 
@@ -118,7 +115,7 @@ usage(){
       --download                  : Either or not to download the kernel sources.
       --build PATH                : Building directory. This directory is where hearder will be saved
                                     and the kernel will be built.
-      --target PATH               : Target directory. This directory is where the kernel sources are
+      --source PATH               : Source directory. This directory is where the kernel sources are
                                     saved.
       --name NAME                 : How you want to name this kernel.
       --file PATH                 : Path to a config file.
@@ -127,11 +124,12 @@ usage(){
 EOF
 }
 
-downloadKernel (){
+downloadKernel() {
     local html="$(wget --output-document - --quiet https://www.kernel.org/ | grep -A 1 "latest_link")"
     local kernelName="$(echo $html | grep -Eo "linux-[4-9]\.[0-9]+\.?[0-9]*\.tar\.xz")"
+    echo "Line 130 ${kernelName}"
     local mayorVersion="$(echo $kernelName | cut -d'-' -f2 | cut -d'.' -f1)"
-    local version="$(echo $kernelName | grep -Eo "linux-[4-9]\.[0-9]+\.?[0-9]")"
+    local version="$(echo $kernelName | grep -Eo "linux-[4-9]\.[0-9]+\.[0-9]+")"
     local tarFile="/usr/src/${kernelName}"
 
     if [[ ! -f $tarFile ]]; then
@@ -148,18 +146,18 @@ downloadKernel (){
         exitWithError "Untaring $tarFile failed"
     fi
 
-    TARGETDIR="/usr/src/${version}"
+    echo "line 149 ${version}"
+    SOURCEDIR="/usr/src/${version}"
 }
 
-modifyConfig (){
-    ROOTFSTYPE="$(lsblk -o MOUNTPOINT,FSTYPE,UUID | grep -E "^/ " | awk '{print $2}')"
-    ROOTUUID="$(lsblk -o MOUNTPOINT,FSTYPE,UUID | grep -E "^/ " | awk '{print $3}')"
-    SWAPUUID="$(lsblk -o FSTYPE,UUID | grep -E "^swap " | awk '{print $2}')"
+modifyConfig() {
+    ROOTFSTYPE="$(lsblk -o MOUNTPOINT,FSTYPE | grep -E "^/ " | awk '{print $2}')"
+    ROOTUUID="$(lsblk -o MOUNTPOINT,PARTUUID | grep -E "^/ " | awk '{print $2}')"
+    SWAPUUID="$(lsblk -o FSTYPE,PARTUUID | grep -E "^swap " | awk '{print $2}')"
     TXT="CONFIG_CMDLINE_BOOL=y\n"
-    TXT="${TXT}CONFIG_CMDLINE=\"rootfstype=${ROOTFSTYPE} root=UUID=${ROOTUUID} rw quiet resume=UUID=${SWAPUUID}\"\n"
-    TXT="${TXT}CONFIG_CMDLINE_OVERRIDE=y\n"
-    echo "${BUILDDIR} ${KERNELNAME}"
-    echo -e $TXT
+    TXT="${TXT}CONFIG_CMDLINE=\"rootfstype=${ROOTFSTYPE} root=PARTUUID=${ROOTUUID} rw resume=PARTUUID=${SWAPUUID}\"\n"
+    # TXT="${TXT}CONFIG_CMDLINE_OVERRIDE=y\n"
+    # quiet
     sed -Ei "s/^#? ?CONFIG_CMDLINE_OVERRIDE(=[ynm]| is not set)//" ${BUILDDIR}/.config
     sed -Ei "s/^#? ?CONFIG_CMDLINE[ =].*//" ${BUILDDIR}/.config
     sed -Ei "s/^#? ?CONFIG_CMDLINE_BOOL(=[ynm]| is not set)/${TXT}/" ${BUILDDIR}/.config
@@ -176,14 +174,8 @@ while [ $# -gt 0 ]; do
         usage
         exit 0
         ;;
-    "--verbose")
-        shift
-        # LoggedOut "Turned on verbose output."
-        VERBOSE=1
-        ;;
     "--edit")
         shift
-        # LoggedOut "Turned on verbose output."
         RUNXCONFIG=1
         ;;
     "--download")
@@ -207,10 +199,10 @@ while [ $# -gt 0 ]; do
         TOSAVECONFIG="$(checkDirectory "$1")"
         shift
         ;;
-    "--target")
+    "--source")
         shift
         printLine "Checking if $1 is a valid directory"
-        TARGETDIR="$(checkDirectory "$1")"
+        SOURCEDIR="$(checkDirectory "$1")"
         shift
         ;;
     "--name")
@@ -234,15 +226,20 @@ if [[ $GETKERNEL -eq 1 ]]; then
     downloadKernel
 fi
 
-if [[ -z $TARGETDIR ]]; then
-    exitWithError "--target is undefined"
+if [[ -z $SOURCEDIR ]]; then
+    exitWithError "--source is undefined"
 fi
+
+if [[ ! -d $SOURCEDIR ]]; then
+    exitWithError "$SOURCEDIR doesn't exist"
+fi
+
 
 if [[ -z $BUILDDIR ]]; then
     exitWithError "--build is undefined"
 fi
 
-cd $TARGETDIR
+cd $SOURCEDIR || exit 2
 VERSION="$(make -s kernelversion 2> /dev/null)"
 
 if [[ -n $KERNELNAME ]]; then
@@ -256,7 +253,7 @@ BUILDDIR="${BUILDDIR}/${KERNELVERSION}"
 
 if [[ -d $BUILDDIR ]]; then
     printLine "make O=$BUILDDIR distclean"
-    make -j $cpuno V=0 O=$BUILDDIR distclean 2>> ${BUILDDIR}/Error # 1> /dev/null
+    make -j $cpuno V=0 O=$BUILDDIR distclean 2>> ${BUILDDIR}/Error 1> /dev/null
 else
     printLine "mkdir ${BUILDDIR}"
     mkdir ${BUILDDIR}
@@ -270,8 +267,8 @@ else
     if [[ $? -eq 0 &&  -f /proc/config.gz ]]; then
         printLine "zcat /proc/config.gz > ${BUILDDIR}/.config"
         zcat /proc/config.gz > ${BUILDDIR}/.config
-    elif [[ -f /boot/config* ]]; then
-        exitWithError "CODE ME, please! I beg you."
+    # elif [[ -f /boot/config* ]]; then
+    #     exitWithError "CODE ME, please! I beg you."
         # get the highest config file from all and then cat it to ${BUILDDIR}/.config"
     else
         exitWithError "We couldn't find a config file to use."
@@ -283,28 +280,24 @@ if [[ $configFound -eq 1 ]]; then
     shouldRunOldConfig $VERSION
     versionValidation=$?
     if [[ $versionValidation -eq 1 ]]; then
-        whatToRun="menuconfig"
-        # printLine "make -j $cpuno V=0 O=${BUILDDIR} olddefconfig"
-        # make -j $cpuno V=0 O=${BUILDDIR} olddefconfig 2>> ${BUILDDIR}/Error # 1> /dev/null
+        whatToRun="olddefconfig"
     elif [[ $versionValidation -eq 2 ]]; then
         exitWithError "You are downgrading your kernel, this is not supported"
     else
-        whatToRun=""
+        whatToRun=
     fi
     if [[ $RUNXCONFIG -eq 1 ]]; then
         whatToRun="${whatToRun} menuconfig"
     fi
 else
     whatToRun="defconfig menuconfig"
-    # printLine "make -j $cpuno V=0 O=${BUILDDIR} "
-    # make -j $cpuno V=0 O=${BUILDDIR} defconfig 2>> ${BUILDDIR}/Error # 1> /dev/null
 fi
 
 modifyConfig
 
 whatToRun="${whatToRun} all"
 printLine "make -j $cpuno V=0 O=${BUILDDIR} $whatToRun"
-make -j $cpuno V=0 O=${BUILDDIR} $whatToRun 2>> ${BUILDDIR}/Error
+make -j $cpuno --silent V=0 O=${BUILDDIR} $whatToRun 2>> ${BUILDDIR}/Error
 if [[ $? -ne 0 ]]; then
     exitWithError "This command \"make -j $cpuno V=0 O=${BUILDDIR} $whatToRun\" failed"
 fi
@@ -320,11 +313,10 @@ if [[ -d /usr/lib/modules/${KERNELVERSION} ]]; then
 fi
 
 printLine "make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install"
-make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install 2>> ${BUILDDIR}/Error # 1> /dev/null
+make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install 2>> ${BUILDDIR}/Error 1> /dev/null
 if [[ $? -ne 0 ]]; then
     exitWithError "This command \"make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install\" failed"
 fi
-
 
 if [[ -f $BUILDDIR/.config ]]; then
     printLine "Copying $BUILDDIR/.config -> /boot/config-${KERNELVERSION}"
@@ -347,7 +339,6 @@ else
     exitWithError "File $BUILDDIR/arch/x86_64/boot/bzImage"
 fi
 
-
 printLine "Creating initramfs-${KERNELVERSION}.img file"
 mkinitcpio -k ${KERNELVERSION} -g /boot/initramfs-${KERNELVERSION}.img
 if [[ $? -ne 0 ]]; then
@@ -361,8 +352,6 @@ if [[ -x ${ONDONE} ]]; then
         exitWithError "This command \"${ONDONE} ${KERNELVERSION} ${BUILDDIR}\" failed"
     fi
 fi
-
-
 
 printLine "Kernel ${KERNELVERSION} was successfully installed"
 printLine "Bye!"
