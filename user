@@ -127,7 +127,7 @@ EOF
 downloadKernel() {
     local html="$(wget --output-document - --quiet https://www.kernel.org/ | grep -A 1 "latest_link")"
     local kernelName="$(echo $html | grep -Eo "linux-[4-9]\.[0-9]+\.?[0-9]*\.tar\.xz")"
-    echo "Line 130 ${kernelName}"
+
     local mayorVersion="$(echo $kernelName | cut -d'-' -f2 | cut -d'.' -f1)"
     local version="$(echo $kernelName | grep -Eo "linux-[4-9]\.[0-9]+\.[0-9]+")"
     local tarFile="/usr/src/${kernelName}"
@@ -146,7 +146,6 @@ downloadKernel() {
         exitWithError "Untaring $tarFile failed"
     fi
 
-    echo "line 149 ${version}"
     SOURCEDIR="/usr/src/${version}"
 }
 

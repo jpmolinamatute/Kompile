@@ -58,9 +58,9 @@ fi
 
 for module in "${vBoxModules[@]}"; do
     if [[ -f ${MODULESDIR}/${module} ]]; then
-        printLine "Signing module $module"
+        # printLine "Signing module $module"
         $SIGNING_SCRIP sha1 $KEYPEM $KEYX509 ${MODULESDIR}/${module}
-    else
-        exitWithError "ERROR: ${MODULESDIR}/${module} doesn't exists"
+    # else
+        # exitWithError "ERROR: ${MODULESDIR}/${module} doesn't exists"
     fi
 done
