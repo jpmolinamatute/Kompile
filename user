@@ -344,6 +344,16 @@ if [[ $? -ne 0 ]]; then
     exitWithError "ERROR: mkinitcpio failed"
 fi
 
+printLine "Creating entry file"
+(cat <<EOF
+title Arch Linux
+linux /vmlinuz-${KERNELVERSION}
+version ${KERNELVERSION}
+initrd /intel-ucode.img
+initrd /initramfs-${KERNELVERSION}.img
+EOF
+) > /boot/loader/entries/${KERNELVERSION}.conf
+
 if [[ -x ${ONDONE} ]]; then
     printLine "Calling ${ONDONE} ${KERNELVERSION} ${BUILDDIR}"
     ${ONDONE} ${KERNELVERSION} ${BUILDDIR}
