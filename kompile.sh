@@ -1,20 +1,31 @@
 #!/usr/bin/env bash
 
-KERNELNAME="ichigo"
-SOURCESDIR="/usr/src/linux-4.17"
-BASEBUILDDIR="/opt/kernel-builds"
-TEMPLATEFILE="/opt/kernel-builds/4.17.0-ichigo-4/.config"
-EDITCONFIG=1
-ONDONE="/home/juanpa/Projects/compile/external"
-
+BASESOURCEDIR="/usr/src"
 cpuno=$(grep -Pc "processor\\t:" /proc/cpuinfo)
-FULLKERNELNAME=
+
+# vars set by either user or program
 KERNELVERSION=
+
+# vars set WITH user input
+FULLKERNELNAME=
 BUILDDIR=
 CONFIGFILE=
 TEMPLATEVERSION=
 MODULESDIR=
 TRACKVERSION=
+SOURCESDIR=
+
+
+# vars set by user input
+KERNELNAME=
+BASEBUILDDIR=
+TEMPLATEFILE=
+SOURCEVERSIONLABEL=
+EDITCONFIG=0
+DOWNLOAD=0
+# ONDONE=
+
+
 
 vercomp() {
     # FROM https://stackoverflow.com/questions/4023830/how-compare-two-strings-in-dot-separated-version-format-in-bash
@@ -53,6 +64,7 @@ exitWithError() {
     local COLOR='\033[0;31m'
     local NC='\033[0m'
     echo -e >&2 "${COLOR}ERROR: $1${NC}"
+    echo "$1" >> ${BUILDDIR}/Error
     if [[ -f ${BUILDDIR}/Error ]]; then
         cat ${BUILDDIR}/Error
     fi
@@ -67,39 +79,67 @@ printLine() {
 
 checkDirectory() {
     local dir=$1
-    if [[ -z $dir || ! -d $dir || ! -w $dir ]]; then
-        exitWithError "Directory $dir doesn't exists or it's not writable"
+    if [[ -n $dir ]]; then
+        if [[ ! -d $dir || ! -w $dir ]]; then
+            echo -e "\\033[0;31mError: Directory $dir doesn't exists or it's not writable${NC}"
+            exit 2
+        fi
+    else
+        echo -e "\\033[0;31mError: Directory $2 doesn't exists or it's not writable${NC}"
+        exit 2
     fi
 }
 
 checkSystem(){
     if [[ $EUID -ne 0 ]]; then
-        exitWithError "This script must be run as root"
+        echo -e "\\033[0;31mError: This script must be run as root"
+        exit 2
     fi
     command -v bc &> /dev/null
     if [[ $? -ne 0 ]]; then
-        exitWithError "Please install bc"
+        echo -e "\\033[0;31mError: Please install bc"
+        exit 2
     fi
 
     if [[ -z $KERNELNAME ]]; then
-        exitWithError "Please provide a name"
+        echo -e "\\033[0;31mError: Please provide a name"
+        exit 2
     fi
 
-    checkDirectory $SOURCESDIR
-    checkDirectory $BASEBUILDDIR
+    checkDirectory $BASESOURCEDIR
+    checkDirectory $BASEBUILDDIR "Base Building"
+
+    if [[ $DOWNLOAD -eq 0 ]]; then
+        if [[ -n $SOURCEVERSIONLABEL ]]; then
+            checkDirectory "${BASESOURCEDIR}/${SOURCEVERSIONLABEL}"
+        else
+            echo -e "\\033[0;31mError: Please provide a Kernel version Label"
+            exit 2
+        fi
+    elif [[ $DOWNLOAD -eq 1 && -n $SOURCEVERSIONLABEL ]]; then
+        echo -e "\\033[0;31mError: Source label and download cannot be used together"
+        exit 2
+    fi
+
 }
 
-
 getVersionSources() {
+    cd "$SOURCESDIR" || exit 2
     KERNELVERSION="$(make -s kernelversion 2> /dev/null)"
 }
 
 setVariables() {
+    if [[ $DOWNLOAD -eq 0 ]]; then
+        SOURCESDIR="${BASESOURCEDIR}/${SOURCEVERSIONLABEL}"
+        getVersionSources
+    fi
+
     if [[ -z $TRACKVERSION ]]; then
         FULLKERNELNAME="${KERNELVERSION}-${KERNELNAME}"
     else
         FULLKERNELNAME="${KERNELVERSION}-${KERNELNAME}-${TRACKVERSION}"
     fi
+
     BUILDDIR="${BASEBUILDDIR}/${FULLKERNELNAME}"
     CONFIGFILE="${BUILDDIR}/.config"
     MODULESDIR="/usr/lib/modules/${FULLKERNELNAME}"
@@ -135,7 +175,7 @@ setbuilddir() {
         printLine "mkdir ${BUILDDIR}"
         mkdir "$BUILDDIR"
     fi
-    printLine "make -j $cpuno O=$BUILDDIR distclean"
+    printLine "make -j $cpuno V=0 O=$BUILDDIR distclean"
     make -j "$cpuno" V=0 O="$BUILDDIR" distclean 2> "${BUILDDIR}/Error" 1> /dev/null
     echo "#####  Error log start here  #####" > "${BUILDDIR}/Error"
 }
@@ -185,12 +225,18 @@ modifyConfig() {
     # sed -Ei "s/^#? ?CONFIG_PM_STD_PARTITION[ =].*//" "$CONFIGFILE"
 }
 
-
 runOlddefconfig(){
     printLine "make -j $cpuno V=0 O=${BUILDDIR} olddefconfig"
     make -j "$cpuno" V=0 O="$BUILDDIR" olddefconfig 2>> "${BUILDDIR}/Error" 1> /dev/null
     if [[ $? -ne 0 ]]; then
         exitWithError "'make olddefconfig' failed"
+    fi
+}
+
+save(){
+    if [[ -d $SAVECONFIG ]]; then
+        printLine "Saving ${BUILDDIR}/.config to $SAVECONFIG/config-${FULLKERNELNAME}"
+        cp --remove-destination "${BUILDDIR}/.config" "$SAVECONFIG/config-${FULLKERNELNAME}"
     fi
 }
 
@@ -225,6 +271,76 @@ buildModules(){
     fi
 }
 
+usage() {
+    cat >&2 <<EOF
+    Usage: $THISSCRIPT [options]
+
+    Options:
+      --help                      : This output.
+      --edit                      : Either or not to run GUI tool to modify config file.
+      --download                  : Either or not to download the kernel sources.
+      --build PATH                : Building directory. This directory is where hearder will be saved
+                                    and the kernel will be built.
+      --source PATH               : Source directory. This directory is where the kernel sources are
+                                    saved.
+      --name NAME                 : How you want to name this kernel.
+      --file PATH                 : Path to a config file.
+      --save                      : Path to save config file
+      --ondone                    : Path to script to execute after $THISSCRIPT
+EOF
+}
+
+getUserInput() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+        "--help")
+            usage
+            exit 0
+            ;;
+        "--edit")
+            shift
+            EDITCONFIG=1
+            ;;
+        "--download")
+            shift
+            DOWNLOAD=1
+            ;;
+        "--build")
+            shift
+            BASEBUILDDIR="$(readlink -f "$1")"
+            shift
+            ;;
+        "--ondone")
+            shift
+            ONDONE="$(readlink -f "$1")"
+            shift
+            ;;
+        "--save")
+            shift
+            SAVECONFIG="$1"
+            shift
+            ;;
+        "--source")
+            shift
+            SOURCEVERSIONLABEL="$1"
+            shift
+            ;;
+        "--name")
+            shift
+            KERNELNAME="$1"
+            shift
+            ;;
+        "--file")
+            shift
+            TEMPLATEFILE="$(readlink -f "$1")"
+            shift
+            ;;
+        *)
+            exitWithError "Unknown command-line option $1"
+            ;;
+        esac
+    done
+}
 
 install(){
     if [[ -f $BUILDDIR/System.map ]]; then
@@ -258,16 +374,59 @@ EOF
 ) > "/boot/loader/entries/${FULLKERNELNAME}.conf"
 }
 
+downloadSources() {
+    local html
+    local tarFile
+    local mayorVersion
+    local tarPath
+    local prefix="linux-"
+    local suffic="\\.tar\\.xz"
+    html="$(wget --output-document - --quiet https://www.kernel.org/ | grep -A 1 "latest_link")"
+    tarFile="$(echo "$html" | grep -Eo "linux-[4-9]\\.[0-9]+\\.?[0-9]*\\.tar\\.xz")"
+    mayorVersion="$(echo "$tarFile" | cut -d'-' -f2 | cut -d'.' -f1)"
+    KERNELVERSION="${tarFile#$prefix}"
+    KERNELVERSION="${KERNELVERSION%$suffic}"
+    SOURCESDIR="${BASESOURCEDIR}/linux-${KERNELVERSION}"
+    tarPath="${BASESOURCEDIR}/${tarFile}"
 
+    if [[ ! -f $tarPath ]]; then
+        printLine "Downloading latest Linux Kernel: version found ${KERNELVERSION}"
+        wget -P "$BASESOURCEDIR" --https-only "https://cdn.kernel.org/pub/linux/kernel/v${mayorVersion}.x/${tarFile}"
+        if [[ $? -ne 0 ]]; then
+            exitWithError "Downloading ${tarFile} failed"
+        fi
+    else
+        if [[ -d $SOURCESDIR ]]; then
+            printLine "Removing sources downloaded previously"
+            rm -rf "$SOURCESDIR"
+        fi
+    fi
+
+    printLine "Untaring $tarPath"
+    tar -xf "$tarPath" -C "$BASESOURCEDIR" --overwrite
+    if [[ $? -ne 0 ]]; then
+        exitWithError "Untaring $tarPath failed"
+    fi
+}
+
+
+getUserInput "$@"
 checkSystem
-cd "$SOURCESDIR" || exit 2
-getVersionSources
-setVariables
+
+if [[ $DOWNLOAD -eq 1 ]]; then
+    downloadSources
+    setVariables
+    cd "$SOURCESDIR" || exit 2
+else
+    setVariables
+fi
+
 setbuilddir
 moveTemplate
 getTemplateVersion
 vercomp "$KERNELVERSION" "$TEMPLATEVERSION"
 versionValidation=$?
+
 if [[ $versionValidation -eq 1 ]]; then
     runOlddefconfig
 elif [[ $versionValidation -eq 2 ]]; then
@@ -278,6 +437,7 @@ editConfig
 buildKernel
 buildModules
 install
+save
 
 if [[ -x $ONDONE ]]; then
     printLine "Calling ${ONDONE} ${FULLKERNELNAME} ${BUILDDIR}"
