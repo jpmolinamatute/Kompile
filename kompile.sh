@@ -235,8 +235,8 @@ runOlddefconfig(){
 
 save(){
     if [[ -d $SAVECONFIG ]]; then
-        printLine "Saving ${BUILDDIR}/.config to $SAVECONFIG/config-${FULLKERNELNAME}"
-        cp --remove-destination "${BUILDDIR}/.config" "$SAVECONFIG/config-${FULLKERNELNAME}"
+        printLine "Saving ${CONFIGFILE} to $SAVECONFIG/config-${FULLKERNELNAME}"
+        cp --remove-destination "${CONFIGFILE}" "$SAVECONFIG/config-${FULLKERNELNAME}"
     fi
 }
 
@@ -362,6 +362,9 @@ install(){
     if [[ $? -ne 0 ]]; then
         exitWithError "mkinitcpio failed"
     fi
+
+    printLine "Saving $CONFIGFILE to /boot/config-${FULLKERNELNAME}"
+    cp --remove-destination "${CONFIGFILE}" "/boot/config-${FULLKERNELNAME}"
 
     printLine "Creating entry file"
 (cat <<EOF
