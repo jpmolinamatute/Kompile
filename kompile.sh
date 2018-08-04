@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-
+SRCDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASESOURCEDIR="/usr/src"
 cpuno=$(grep -Pc "processor\\t:" /proc/cpuinfo)
 
@@ -23,6 +23,8 @@ TEMPLATEFILE=
 SOURCEVERSIONLABEL=
 EDITCONFIG=0
 DOWNLOAD=0
+DRY=
+SAVECONFIG=
 # ONDONE=
 
 
@@ -91,7 +93,7 @@ checkDirectory() {
 }
 
 checkSystem(){
-    if [[ $EUID -ne 0 ]]; then
+    if [[ -z $DRY && $EUID -ne 0 ]]; then
         echo -e "\\033[0;31mError: This script must be run as root"
         exit 2
     fi
@@ -120,7 +122,6 @@ checkSystem(){
         echo -e "\\033[0;31mError: Source label and download cannot be used together"
         exit 2
     fi
-
 }
 
 getVersionSources() {
@@ -203,11 +204,11 @@ modifyConfig() {
     local rootfstype
     local rootuuid
     local txt
-    # local swapuuid
+    local swapuuid
 
     rootfstype="$(lsblk -o MOUNTPOINT,FSTYPE | grep -E "^/ " | awk '{print $2}')"
     rootuuid="$(lsblk -o MOUNTPOINT,PARTUUID | grep -E "^/ " | awk '{print $2}')"
-    # swapuuid="/dev/$(lsblk -o FSTYPE,KNAME | grep -E "^swap " | awk '{print $2}')"
+    swapuuid="$(lsblk -o FSTYPE,KNAME | grep -E "^swap " | awk '{print $2}')"
     txt="CONFIG_CMDLINE_BOOL=y\\n"
     txt="${txt}CONFIG_CMDLINE=\"rootfstype=${rootfstype} root=PARTUUID=${rootuuid} rw quiet\"\\n"
     # txt="${txt}CONFIG_CMDLINE_OVERRIDE=y\n"
@@ -222,7 +223,8 @@ modifyConfig() {
         sed -Ei "s/^CONFIG_LOCALVERSION=\".*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}-${TRACKVERSION}\"/" "$CONFIGFILE"
     fi
 
-    # sed -Ei "s/^#? ?CONFIG_PM_STD_PARTITION[ =].*//" "$CONFIGFILE"
+    sed -Ei "s/^#? ?CONFIG_PM_STD_PARTITION[ =].*$/CONFIG_PM_STD_PARTITION=\"\/dev\/${swapuuid}\"/" "$CONFIGFILE"
+    sed -Ei "s/^#? ?CONFIG_DEFAULT_HOSTNAME[ =].*$/CONFIG_DEFAULT_HOSTNAME=\"${KERNELNAME}\"/" "$CONFIGFILE"
 }
 
 runOlddefconfig(){
@@ -233,12 +235,21 @@ runOlddefconfig(){
     fi
 }
 
-save(){
+saveConfig(){
     if [[ -d $SAVECONFIG ]]; then
         printLine "Saving ${CONFIGFILE} to $SAVECONFIG/config-${FULLKERNELNAME}"
         cp --remove-destination "${CONFIGFILE}" "$SAVECONFIG/config-${FULLKERNELNAME}"
     fi
 }
+
+makeConfig(){
+    printLine "make -j $cpuno V=0 O=${BUILDDIR} xconfig"
+    make -j "$cpuno" V=0 O="$BUILDDIR" xconfig 2>> "${BUILDDIR}/Error"
+    if [[ $? -ne 0 ]]; then
+        exitWithError "'make xconfig' failed"
+    fi
+}
+
 
 editConfig(){
     if [[ $EDITCONFIG -eq 1 ]]; then
@@ -285,8 +296,9 @@ usage() {
                                     saved.
       --name NAME                 : How you want to name this kernel.
       --file PATH                 : Path to a config file.
-      --save                      : Path to save config file
+      --save                      : Path where config file will be saved
       --ondone                    : Path to script to execute after $THISSCRIPT
+      --dry                       : will create a config file in current directory if --save is not specify
 EOF
 }
 
@@ -319,6 +331,14 @@ getUserInput() {
             shift
             SAVECONFIG="$1"
             shift
+            ;;
+        "--dry")
+            shift
+            DRY=1
+            BASESOURCEDIR="/tmp"
+            if [[ -z $SAVECONFIG ]]; then
+                SAVECONFIG=$SRCDIR
+            fi
             ;;
         "--source")
             shift
@@ -384,8 +404,7 @@ downloadSources() {
     local tarPath
     local prefix="linux-"
     local suffic="\\.tar\\.xz"
-    html="$(wget --output-document - --quiet https://www.kernel.org/ | grep -A 1 "latest_link")"
-    tarFile="$(echo "$html" | grep -Eo "linux-[4-9]\\.[0-9]+\\.?[0-9]*\\.tar\\.xz")"
+    tarFile="$(wget --output-document - --quiet https://www.kernel.org/ | grep -A 1 "latest_link" | grep -Eo "linux-[4-9]\\.[0-9]+\\.?[0-9]*\\.tar\\.xz")"
     mayorVersion="$(echo "$tarFile" | cut -d'-' -f2 | cut -d'.' -f1)"
     KERNELVERSION="${tarFile#$prefix}"
     KERNELVERSION="${KERNELVERSION%$suffic}"
@@ -436,20 +455,27 @@ elif [[ $versionValidation -eq 2 ]]; then
     exitWithError "You are downgrading your kernel, this is not supported"
 fi
 modifyConfig
-editConfig
-buildKernel
-buildModules
-install
-save
 
-if [[ -x $ONDONE ]]; then
-    printLine "Calling ${ONDONE} ${FULLKERNELNAME} ${BUILDDIR}"
-    $ONDONE "${FULLKERNELNAME}" "${BUILDDIR}"
-    if [[ $? -ne 0 ]]; then
-        exitWithError "This command \"${ONDONE} ${FULLKERNELNAME} ${BUILDDIR}\" failed"
+if [[ -z $DRY ]]; then
+    editConfig
+    buildKernel
+    buildModules
+    install
+    saveConfig
+
+    if [[ -x $ONDONE ]]; then
+        printLine "Calling ${ONDONE} ${FULLKERNELNAME} ${BUILDDIR}"
+        $ONDONE "${FULLKERNELNAME}" "${BUILDDIR}"
+        if [[ $? -ne 0 ]]; then
+            exitWithError "This command \"${ONDONE} ${FULLKERNELNAME} ${BUILDDIR}\" failed"
+        fi
     fi
+
+    printLine "Kernel ${FULLKERNELNAME} was successfully installed"
+else
+    makeConfig
+    saveConfig
 fi
 
-printLine "Kernel ${FULLKERNELNAME} was successfully installed"
 printLine "Bye!"
 exit 0
