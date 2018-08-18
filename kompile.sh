@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+THISSCRIPT="$(basename "$0")"
 SRCDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASESOURCEDIR="/usr/src"
 cpuno=$(grep -Pc "processor\\t:" /proc/cpuinfo)
@@ -92,6 +93,12 @@ checkSystem() {
 		exit 2
 	fi
 
+	command -v zcat &>/dev/null
+	if [[ $? -ne 0 ]]; then
+		echo -e "${RED}Error: Please install zcat${NC}"
+		exit 2
+	fi
+
 	if [[ -z $KERNELNAME ]]; then
 		echo -e "${RED}Error: Please provide a name${NC}"
 		exit 2
@@ -147,7 +154,7 @@ setbuilddir() {
 		if [[ $answer =~ [iI] ]]; then
 			local FILES="${BUILDDIR}*"
 			for f in $FILES; do
-				TRACKVERSION=$(cut -d'-' -f4 <<<"$f")
+				TRACKVERSION=$(basename "$f" | cut -d'-' -f3)
 			done
 
 			if [[ -z $TRACKVERSION ]]; then
@@ -177,7 +184,7 @@ moveTemplate() {
 	else
 		command -v zcat &>/dev/null
 		if [[ $? -eq 0 && -f /proc/config.gz ]]; then
-			printLine "zcat /proc/config.gz > ${CONFIGFILE}"
+			printLine "Config file found: /proc/config.gz"
 			zcat /proc/config.gz >"$CONFIGFILE"
 			# elif [[ -f /boot/config* ]]; then
 			#     exitWithError "CODE ME, please! I beg you."
@@ -216,77 +223,94 @@ modifyConfig() {
 }
 
 runOlddefconfig() {
-	printLine "make -j $cpuno V=0 O=${BUILDDIR} olddefconfig"
-	make -j "$cpuno" V=0 O="$BUILDDIR" olddefconfig 2>>"${BUILDDIR}/Error" 1>/dev/null
-	if [[ $? -ne 0 ]]; then
-		exitWithError "'make olddefconfig' failed"
+	local validation=$1
+	if [[ $validation -eq 1 ]]; then
+		printLine "make -j $cpuno V=0 O=${BUILDDIR} olddefconfig"
+		make -j "$cpuno" V=0 O="$BUILDDIR" olddefconfig 2>>"${BUILDDIR}/Error" 1>/dev/null
+		if [[ $? -ne 0 ]]; then
+			exitWithError "'make olddefconfig' failed"
+		fi
+	elif [[ $validation -eq 2 ]]; then
+		exitWithError "You are downgrading your kernel, this is not supported"
 	fi
 }
 
 saveConfig() {
 	if [[ -d $SAVECONFIG ]]; then
-		printLine "Saving ${CONFIGFILE} to $SAVECONFIG/config-${FULLKERNELNAME}"
+		printLine "Copying ${CONFIGFILE} to $SAVECONFIG/config-${FULLKERNELNAME}"
 		cp --remove-destination "${CONFIGFILE}" "$SAVECONFIG/config-${FULLKERNELNAME}"
 	fi
 }
 
-makeConfig() {
-	printLine "make -j $cpuno V=0 O=${BUILDDIR} xconfig"
-	make -j "$cpuno" V=0 O="$BUILDDIR" xconfig 2>>"${BUILDDIR}/Error"
-	if [[ $? -ne 0 ]]; then
-		exitWithError "'make xconfig' failed"
-	fi
-}
-
 editConfig() {
-	if [[ $EDITCONFIG -eq 1 ]]; then
-		printLine "make -j $cpuno V=0 O=${BUILDDIR} menuconfig"
-		make -j "$cpuno" V=0 O="$BUILDDIR" menuconfig 2>>"${BUILDDIR}/Error"
+	if [[ -z $DRY ]]; then
+		if [[ $EDITCONFIG -eq 1 ]]; then
+			printLine "make -j $cpuno V=0 O=${BUILDDIR} menuconfig"
+			make -j "$cpuno" V=0 O="$BUILDDIR" menuconfig 2>>"${BUILDDIR}/Error"
+			if [[ $? -ne 0 ]]; then
+				exitWithError "'make menuconfig' failed"
+			fi
+		fi
+	else
+		printLine "make -j $cpuno V=0 O=${BUILDDIR} xconfig"
+		make -j "$cpuno" V=0 O="$BUILDDIR" xconfig 2>>"${BUILDDIR}/Error"
 		if [[ $? -ne 0 ]]; then
-			exitWithError "'make menuconfig' failed"
+			exitWithError "'make xconfig' failed"
 		fi
 	fi
 }
 
 buildKernel() {
-	printLine "make -j $cpuno V=0 O=${BUILDDIR} all"
-	make -j "$cpuno" V=0 O="$BUILDDIR" all 2>>"${BUILDDIR}/Error" 1>/dev/null
-	if [[ $? -ne 0 ]]; then
-		exitWithError "'make all' failed"
+	if [[ -z $DRY ]]; then
+		printLine "make -j $cpuno V=0 O=${BUILDDIR} all"
+		make -j "$cpuno" V=0 O="$BUILDDIR" all 2>>"${BUILDDIR}/Error" 1>/dev/null
+		if [[ $? -ne 0 ]]; then
+			exitWithError "'make all' failed"
+		fi
 	fi
 }
 
 buildModules() {
-	if [[ -d $MODULESDIR ]]; then
-		printLine "Removing $MODULESDIR directory"
-		rm -rf "$MODULESDIR"
-	fi
+	if [[ -z $DRY ]]; then
+		if [[ -d $MODULESDIR ]]; then
+			printLine "Removing $MODULESDIR directory"
+			rm -rf "$MODULESDIR"
+		fi
 
-	printLine "make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install"
-	make -j "$cpuno" V=0 O="${BUILDDIR}" modules_install headers_install 2>>"${BUILDDIR}/Error" 1>/dev/null
-	if [[ $? -ne 0 ]]; then
-		exitWithError "'make modules_install headers_install' failed"
+		printLine "make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install"
+		make -j "$cpuno" V=0 O="${BUILDDIR}" modules_install headers_install 2>>"${BUILDDIR}/Error" 1>/dev/null
+		if [[ $? -ne 0 ]]; then
+			exitWithError "'make modules_install headers_install' failed"
+		fi
 	fi
 }
 
 usage() {
-	cat >&2 <<EOF
-    Usage: $THISSCRIPT [options]
+	cat <<-EOF
+		Usage: $THISSCRIPT [options]
+		
+		Options:
+		--help                      : This output.
+		--edit                      : Either or not to run GUI tool to modify config file.
+		--download                  : Either or not to download the kernel sources.
+		--build PATH                : Building directory. This directory is where hearder will be saved and the kernel will be built.
+		--source LABEL              : @FIXME
+		--name NAME                 : How you want to name this kernel.
+		--file PATH                 : Path to a config file.
+		--save                      : Path where config file will be saved
+		--ondone                    : Path to script to execute after $THISSCRIPT
+		--dry                       : will create a config file in current directory if --save is not specify
+	EOF
+}
 
-    Options:
-      --help                      : This output.
-      --edit                      : Either or not to run GUI tool to modify config file.
-      --download                  : Either or not to download the kernel sources.
-      --build PATH                : Building directory. This directory is where hearder will be saved
-                                    and the kernel will be built.
-      --source PATH               : Source directory. This directory is where the kernel sources are
-                                    saved.
-      --name NAME                 : How you want to name this kernel.
-      --file PATH                 : Path to a config file.
-      --save                      : Path where config file will be saved
-      --ondone                    : Path to script to execute after $THISSCRIPT
-      --dry                       : will create a config file in current directory if --save is not specify
-EOF
+runExternalScript() {
+	if [[ -z $DRY && -x $ONDONE ]]; then
+		printLine "Calling ${ONDONE} ${FULLKERNELNAME} ${BUILDDIR}"
+		$ONDONE "${FULLKERNELNAME}" "${BUILDDIR}"
+		if [[ $? -ne 0 ]]; then
+			exitWithError "This command \"${ONDONE} ${FULLKERNELNAME} ${BUILDDIR}\" failed"
+		fi
+	fi
 }
 
 getUserInput() {
@@ -351,118 +375,98 @@ getUserInput() {
 }
 
 install() {
-	if [[ -f $BUILDDIR/System.map ]]; then
-		printLine "Copying $BUILDDIR/System.map -> /boot/System.map"
-		cp --remove-destination "$BUILDDIR/System.map" "/boot/System.map"
-	else
-		exitWithError "File $BUILDDIR/System.map doesn't exists"
+	if [[ -z $DRY ]]; then
+		if [[ -f $BUILDDIR/System.map ]]; then
+			printLine "Copying $BUILDDIR/System.map -> /boot/System.map"
+			cp --remove-destination "$BUILDDIR/System.map" "/boot/System.map"
+		else
+			exitWithError "File $BUILDDIR/System.map doesn't exists"
+		fi
+
+		if [[ -f $BUILDDIR/arch/x86_64/boot/bzImage ]]; then
+			printLine "Copying $BUILDDIR/arch/x86_64/boot/bzImage -> /boot/vmlinuz-${FULLKERNELNAME}"
+			cp --remove-destination "$BUILDDIR/arch/x86_64/boot/bzImage" "/boot/vmlinuz-${FULLKERNELNAME}"
+		else
+			exitWithError "File $BUILDDIR/arch/x86_64/boot/bzImage doesn't exists"
+		fi
+
+		printLine "Creating initramfs-${FULLKERNELNAME}.img file"
+		mkinitcpio -k "${FULLKERNELNAME}" -g "/boot/initramfs-${FULLKERNELNAME}.img"
+		if [[ $? -ne 0 ]]; then
+			exitWithError "mkinitcpio failed"
+		fi
+
+		printLine "Saving $CONFIGFILE to /boot/config-${FULLKERNELNAME}"
+		cp --remove-destination "${CONFIGFILE}" "/boot/config-${FULLKERNELNAME}"
+
+		printLine "Creating entry file"
+		cat <<-EOF >"/boot/loader/entries/${FULLKERNELNAME}.conf"
+			title Arch Linux
+			linux /vmlinuz-${FULLKERNELNAME}
+			version ${FULLKERNELNAME}
+			initrd /intel-ucode.img
+			initrd /initramfs-${FULLKERNELNAME}.img
+		EOF
+		printLine "Kernel ${FULLKERNELNAME} was successfully installed"
 	fi
-
-	if [[ -f $BUILDDIR/arch/x86_64/boot/bzImage ]]; then
-		printLine "Copying $BUILDDIR/arch/x86_64/boot/bzImage -> /boot/vmlinuz-${FULLKERNELNAME}"
-		cp --remove-destination "$BUILDDIR/arch/x86_64/boot/bzImage" "/boot/vmlinuz-${FULLKERNELNAME}"
-	else
-		exitWithError "File $BUILDDIR/arch/x86_64/boot/bzImage doesn't exists"
-	fi
-
-	printLine "Creating initramfs-${FULLKERNELNAME}.img file"
-	mkinitcpio -k "${FULLKERNELNAME}" -g "/boot/initramfs-${FULLKERNELNAME}.img"
-	if [[ $? -ne 0 ]]; then
-		exitWithError "mkinitcpio failed"
-	fi
-
-	printLine "Saving $CONFIGFILE to /boot/config-${FULLKERNELNAME}"
-	cp --remove-destination "${CONFIGFILE}" "/boot/config-${FULLKERNELNAME}"
-
-	printLine "Creating entry file"
-	(
-		cat <<EOF
-title Arch Linux
-linux /vmlinuz-${FULLKERNELNAME}
-version ${FULLKERNELNAME}
-initrd /intel-ucode.img
-initrd /initramfs-${FULLKERNELNAME}.img
-EOF
-	) >"/boot/loader/entries/${FULLKERNELNAME}.conf"
 }
 
 downloadSources() {
-	local tarFile
-	local mayorVersion
-	local tarPath
-	local prefix="linux-"
-	local suffic="\\.tar\\.xz"
-	tarFile="$(wget --output-document - --quiet https://www.kernel.org/ | grep -A 1 "latest_link" | grep -Eo "linux-[4-9]\\.[0-9]+\\.?[0-9]*\\.tar\\.xz")"
-	mayorVersion="$(echo "$tarFile" | cut -d'-' -f2 | cut -d'.' -f1)"
-	KERNELVERSION="${tarFile#$prefix}"
-	KERNELVERSION="${KERNELVERSION%$suffic}"
-	SOURCESDIR="${BASESOURCEDIR}/linux-${KERNELVERSION}"
-	tarPath="${BASESOURCEDIR}/${tarFile}"
+	if [[ $DOWNLOAD -eq 1 ]]; then
+		local tarFile
+		local mayorVersion
+		local tarPath
+		local prefix="linux-"
+		local suffic="\\.tar\\.xz"
+		tarFile="$(wget --output-document - --quiet https://www.kernel.org/ | grep -A 1 "latest_link" | grep -Eo "linux-[4-9]\\.[0-9]+\\.?[0-9]*\\.tar\\.xz")"
+		mayorVersion="$(echo "$tarFile" | cut -d'-' -f2 | cut -d'.' -f1)"
+		KERNELVERSION="${tarFile#$prefix}"
+		KERNELVERSION="${KERNELVERSION%$suffic}"
+		SOURCESDIR="${BASESOURCEDIR}/linux-${KERNELVERSION}"
+		tarPath="${BASESOURCEDIR}/${tarFile}"
 
-	if [[ ! -f $tarPath ]]; then
-		printLine "Downloading latest Linux Kernel: version found ${KERNELVERSION}"
-		wget -P "$BASESOURCEDIR" --https-only "https://cdn.kernel.org/pub/linux/kernel/v${mayorVersion}.x/${tarFile}"
+		if [[ ! -f $tarPath ]]; then
+			printLine "Downloading latest Linux Kernel: version found ${KERNELVERSION}"
+			wget -P "$BASESOURCEDIR" --https-only "https://cdn.kernel.org/pub/linux/kernel/v${mayorVersion}.x/${tarFile}"
+			if [[ $? -ne 0 ]]; then
+				exitWithError "Downloading ${tarFile} failed"
+			fi
+		else
+			if [[ -d $SOURCESDIR ]]; then
+				printLine "Removing sources downloaded previously"
+				rm -rf "$SOURCESDIR"
+			fi
+		fi
+
+		printLine "Untaring $tarPath"
+		tar -xf "$tarPath" -C "$BASESOURCEDIR" --overwrite
 		if [[ $? -ne 0 ]]; then
-			exitWithError "Downloading ${tarFile} failed"
+			exitWithError "Untaring $tarPath failed"
 		fi
+		setVariables
+		cd "$SOURCESDIR" || exit 2
 	else
-		if [[ -d $SOURCESDIR ]]; then
-			printLine "Removing sources downloaded previously"
-			rm -rf "$SOURCESDIR"
-		fi
+		setVariables
 	fi
 
-	printLine "Untaring $tarPath"
-	tar -xf "$tarPath" -C "$BASESOURCEDIR" --overwrite
-	if [[ $? -ne 0 ]]; then
-		exitWithError "Untaring $tarPath failed"
-	fi
 }
 
 getUserInput "$@"
 checkSystem
-
-if [[ $DOWNLOAD -eq 1 ]]; then
-	downloadSources
-	setVariables
-	cd "$SOURCESDIR" || exit 2
-else
-	setVariables
-fi
-
+downloadSources
 setbuilddir
 moveTemplate
 getTemplateVersion
 vercomp "$KERNELVERSION" "$TEMPLATEVERSION"
 versionValidation=$?
-
-if [[ $versionValidation -eq 1 ]]; then
-	runOlddefconfig
-elif [[ $versionValidation -eq 2 ]]; then
-	exitWithError "You are downgrading your kernel, this is not supported"
-fi
+runOlddefconfig $versionValidation
 modifyConfig
-
-if [[ -z $DRY ]]; then
-	editConfig
-	buildKernel
-	buildModules
-	install
-	saveConfig
-
-	if [[ -x $ONDONE ]]; then
-		printLine "Calling ${ONDONE} ${FULLKERNELNAME} ${BUILDDIR}"
-		$ONDONE "${FULLKERNELNAME}" "${BUILDDIR}"
-		if [[ $? -ne 0 ]]; then
-			exitWithError "This command \"${ONDONE} ${FULLKERNELNAME} ${BUILDDIR}\" failed"
-		fi
-	fi
-
-	printLine "Kernel ${FULLKERNELNAME} was successfully installed"
-else
-	makeConfig
-	saveConfig
-fi
+editConfig
+buildKernel
+buildModules
+install
+saveConfig
+runExternalScript
 
 printLine "Bye!"
 exit 0
