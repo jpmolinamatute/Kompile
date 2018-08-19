@@ -87,14 +87,13 @@ checkSystem() {
 		echo -e "${RED}Error: This script must be run as root${NC}"
 		exit 2
 	fi
-	command -v bc &>/dev/null
-	if [[ $? -ne 0 ]]; then
+
+	if ! command -v bc &>/dev/null; then
 		echo -e "${RED}Error: Please install bc${NC}"
 		exit 2
 	fi
 
-	command -v zcat &>/dev/null
-	if [[ $? -ne 0 ]]; then
+	if ! command -v zcat &>/dev/null; then
 		echo -e "${RED}Error: Please install zcat${NC}"
 		exit 2
 	fi
@@ -182,11 +181,14 @@ moveTemplate() {
 		cp "$TEMPLATEFILE" "$CONFIGFILE"
 		chmod 644 "$CONFIGFILE"
 	else
-		command -v zcat &>/dev/null
-		if [[ $? -eq 0 && -f /proc/config.gz ]]; then
-			printLine "Config file found: /proc/config.gz"
-			zcat /proc/config.gz >"$CONFIGFILE"
-			# elif [[ -f /boot/config* ]]; then
+		local procConfig="/proc/config.gz"
+		if [[ -f $procConfig ]]; then
+			printLine "Config file found: $procConfig"
+			zcat $procConfig >"$CONFIGFILE"
+			# elif [[ -f /boot/[Cc]onfig* ]]; then
+			#     printLine "Config file found: $procConfig"
+			# 	cp "$TEMPLATEFILE" "$CONFIGFILE"
+			#     chmod 644 "$CONFIGFILE"
 			#     exitWithError "CODE ME, please! I beg you."
 			# get the highest config file from all and then cat it to ${BUILDDIR}/.config"
 		else
@@ -226,8 +228,8 @@ runOlddefconfig() {
 	local validation=$1
 	if [[ $validation -eq 1 ]]; then
 		printLine "make -j $cpuno V=0 O=${BUILDDIR} olddefconfig"
-		make -j "$cpuno" V=0 O="$BUILDDIR" olddefconfig 2>>"${BUILDDIR}/Error" 1>/dev/null
-		if [[ $? -ne 0 ]]; then
+
+		if ! make -j "$cpuno" V=0 O="$BUILDDIR" olddefconfig 2>>"${BUILDDIR}/Error" 1>/dev/null; then
 			exitWithError "'make olddefconfig' failed"
 		fi
 	elif [[ $validation -eq 2 ]]; then
@@ -246,15 +248,15 @@ editConfig() {
 	if [[ -z $DRY ]]; then
 		if [[ $EDITCONFIG -eq 1 ]]; then
 			printLine "make -j $cpuno V=0 O=${BUILDDIR} menuconfig"
-			make -j "$cpuno" V=0 O="$BUILDDIR" menuconfig 2>>"${BUILDDIR}/Error"
-			if [[ $? -ne 0 ]]; then
+
+			if ! make -j "$cpuno" V=0 O="$BUILDDIR" menuconfig 2>>"${BUILDDIR}/Error"; then
 				exitWithError "'make menuconfig' failed"
 			fi
 		fi
 	else
 		printLine "make -j $cpuno V=0 O=${BUILDDIR} xconfig"
-		make -j "$cpuno" V=0 O="$BUILDDIR" xconfig 2>>"${BUILDDIR}/Error"
-		if [[ $? -ne 0 ]]; then
+
+		if ! make -j "$cpuno" V=0 O="$BUILDDIR" xconfig 2>>"${BUILDDIR}/Error"; then
 			exitWithError "'make xconfig' failed"
 		fi
 	fi
@@ -263,8 +265,8 @@ editConfig() {
 buildKernel() {
 	if [[ -z $DRY ]]; then
 		printLine "make -j $cpuno V=0 O=${BUILDDIR} all"
-		make -j "$cpuno" V=0 O="$BUILDDIR" all 2>>"${BUILDDIR}/Error" 1>/dev/null
-		if [[ $? -ne 0 ]]; then
+
+		if ! make -j "$cpuno" V=0 O="$BUILDDIR" all 2>>"${BUILDDIR}/Error" 1>/dev/null; then
 			exitWithError "'make all' failed"
 		fi
 	fi
@@ -278,8 +280,8 @@ buildModules() {
 		fi
 
 		printLine "make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install"
-		make -j "$cpuno" V=0 O="${BUILDDIR}" modules_install headers_install 2>>"${BUILDDIR}/Error" 1>/dev/null
-		if [[ $? -ne 0 ]]; then
+
+		if ! make -j "$cpuno" V=0 O="${BUILDDIR}" modules_install headers_install 2>>"${BUILDDIR}/Error" 1>/dev/null; then
 			exitWithError "'make modules_install headers_install' failed"
 		fi
 	fi
@@ -306,8 +308,7 @@ usage() {
 runExternalScript() {
 	if [[ -z $DRY && -x $ONDONE ]]; then
 		printLine "Calling ${ONDONE} ${FULLKERNELNAME} ${BUILDDIR}"
-		$ONDONE "${FULLKERNELNAME}" "${BUILDDIR}"
-		if [[ $? -ne 0 ]]; then
+		if ! $ONDONE "${FULLKERNELNAME}" "${BUILDDIR}"; then
 			exitWithError "This command \"${ONDONE} ${FULLKERNELNAME} ${BUILDDIR}\" failed"
 		fi
 	fi
@@ -391,8 +392,8 @@ install() {
 		fi
 
 		printLine "Creating initramfs-${FULLKERNELNAME}.img file"
-		mkinitcpio -k "${FULLKERNELNAME}" -g "/boot/initramfs-${FULLKERNELNAME}.img"
-		if [[ $? -ne 0 ]]; then
+
+		if ! mkinitcpio -k "${FULLKERNELNAME}" -g "/boot/initramfs-${FULLKERNELNAME}.img"; then
 			exitWithError "mkinitcpio failed"
 		fi
 
@@ -427,8 +428,8 @@ downloadSources() {
 
 		if [[ ! -f $tarPath ]]; then
 			printLine "Downloading latest Linux Kernel: version found ${KERNELVERSION}"
-			wget -P "$BASESOURCEDIR" --https-only "https://cdn.kernel.org/pub/linux/kernel/v${mayorVersion}.x/${tarFile}"
-			if [[ $? -ne 0 ]]; then
+
+			if ! wget -P "$BASESOURCEDIR" --https-only "https://cdn.kernel.org/pub/linux/kernel/v${mayorVersion}.x/${tarFile}"; then
 				exitWithError "Downloading ${tarFile} failed"
 			fi
 		else
@@ -439,8 +440,8 @@ downloadSources() {
 		fi
 
 		printLine "Untaring $tarPath"
-		tar -xf "$tarPath" -C "$BASESOURCEDIR" --overwrite
-		if [[ $? -ne 0 ]]; then
+
+		if ! tar -xf "$tarPath" -C "$BASESOURCEDIR" --overwrite; then
 			exitWithError "Untaring $tarPath failed"
 		fi
 		setVariables
