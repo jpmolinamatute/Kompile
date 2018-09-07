@@ -54,36 +54,36 @@ vercomp() {
 	return 0
 }
 
-writeToErrorFile(){
-    if [[ -n $1 ]]; then
-        echo "$1" >> $ERRORFILE
-    fi
+writeToErrorFile() {
+	if [[ -n $1 ]]; then
+		echo "$1" >>"$ERRORFILE"
+	fi
 }
 
-writeErrorSectionFile(){
-    if [[ $1 == "start" ]]; then
-        local startend="START"
-    else
-        local startend="END"
-    fi
-    writeToErrorFile "****** $startend OF SECTION: $2 ******"
+writeErrorSectionFile() {
+	if [[ $1 == "start" ]]; then
+		local startend="START"
+	else
+		local startend="END"
+	fi
+	writeToErrorFile "****** $startend OF SECTION: $2 ******"
 }
 
 exitWithError() {
-    local red='\033[0;31m'
-    local end='\033[0m'
+	local red='\033[0;31m'
+	local end='\033[0m'
 	echo -e "${red}ERROR: $1${end}" >&2
 	writeToErrorFile "ERROR: $1"
-    if [[ -n $2 ]]; then
-        writeErrorSectionFile "end" "$2"
-    fi
+	if [[ -n $2 ]]; then
+		writeErrorSectionFile "end" "$2"
+	fi
 	echo "Please read $ERRORFILE for more information"
 	exit 2
 }
 
 printLine() {
 	local green='\033[1;32m'
-    local end='\033[0m'
+	local end='\033[0m'
 	echo -e "${green}==>    $1${end}"
 }
 
@@ -99,23 +99,23 @@ checkDirectory() {
 }
 
 checkSystem() {
-    if [[ $DRY -eq 1 ]]; then
-        local tmpkernel="${SRCDIR}/tmpKernel"
-        if [[ ! -d $tmpkernel ]]; then
-            if ! mkdir $tmpkernel 2>/dev/null; then
-                echo "ERROR: ${SRCDIR} is not writable"
-                exit 2
-            fi
-        fi
-        DOWNLOAD=1
-        BASESOURCEDIR=$tmpkernel
-        BASEBUILDDIR=$tmpkernel
-        SAVECONFIG=$SRCDIR
-        ERRORFILE="${tmpkernel}/Error"
-    fi
-    echo "#####  Error log start here  #####" > $ERRORFILE
-    local sectionName="checking system"
-    writeErrorSectionFile "start" "$sectionName"
+	if [[ $DRY -eq 1 ]]; then
+		local tmpkernel="${SRCDIR}/tmpKernel"
+		if [[ ! -d $tmpkernel ]]; then
+			if ! mkdir "$tmpkernel" 2>/dev/null; then
+				echo "ERROR: ${SRCDIR} is not writable"
+				exit 2
+			fi
+		fi
+		DOWNLOAD=1
+		BASESOURCEDIR=$tmpkernel
+		BASEBUILDDIR=$tmpkernel
+		SAVECONFIG=$SRCDIR
+		ERRORFILE="${tmpkernel}/Error"
+	fi
+	echo "#####  Error log start here  #####" >"$ERRORFILE"
+	local sectionName="checking system"
+	writeErrorSectionFile "start" "$sectionName"
 	if [[ $DRY -eq 0 && $EUID -ne 0 ]]; then
 		exitWithError "This script must be run as root" "$sectionName"
 	fi
@@ -132,8 +132,8 @@ checkSystem() {
 		exitWithError "Please provide a name" "$sectionName"
 	fi
 
-	checkDirectory $BASESOURCEDIR
-	checkDirectory $BASEBUILDDIR "Base Building"
+	checkDirectory "$BASESOURCEDIR"
+	checkDirectory "$BASEBUILDDIR" "Base Building"
 
 	if [[ $DOWNLOAD -eq 0 ]]; then
 		if [[ -n $SOURCEVERSIONLABEL ]]; then
@@ -144,7 +144,7 @@ checkSystem() {
 	elif [[ $DOWNLOAD -eq 1 && -n $SOURCEVERSIONLABEL ]]; then
 		exitWithError "Source label and download cannot be used together" "$sectionName"
 	fi
-    writeErrorSectionFile "end" "$sectionName"
+	writeErrorSectionFile "end" "$sectionName"
 }
 
 getVersionSources() {
@@ -201,28 +201,28 @@ setbuilddir() {
 
 	printLine "make -j $cpuno V=0 O=$BUILDDIR distclean"
 	if ! make -j "$cpuno" V=0 O="$BUILDDIR" distclean 2>>"$ERRORFILE" 1>/dev/null; then
-        exitWithError "pre cleaning process failed"
-    fi
+		exitWithError "pre cleaning process failed"
+	fi
 }
 
 moveTemplate() {
-    local sectionName="getting config file"
-    writeErrorSectionFile "start" "$sectionName"
+	local sectionName="getting config file"
+	writeErrorSectionFile "start" "$sectionName"
 	if [[ -f $TEMPLATEFILE ]]; then
 		printLine "Config file found: $TEMPLATEFILE and copied to $CONFIGFILE"
 		if ! cp "$TEMPLATEFILE" "$CONFIGFILE"; then
-            exitWithError "copying $TEMPLATEFILE to $CONFIGFILE failed" "$sectionName"
-        fi
+			exitWithError "copying $TEMPLATEFILE to $CONFIGFILE failed" "$sectionName"
+		fi
 		if ! chmod 644 "$CONFIGFILE"; then
-            exitWithError "changing permission of $CONFIGFILE failed" "$sectionName"
-        fi
+			exitWithError "changing permission of $CONFIGFILE failed" "$sectionName"
+		fi
 	else
 		local procConfig="/proc/config.gz"
 		if [[ -f $procConfig ]]; then
 			printLine "Config file found: $procConfig and copied to $CONFIGFILE"
 			if ! zcat $procConfig >"$CONFIGFILE"; then
-                exitWithError "creating $CONFIGFILE failed" "$sectionName"
-            fi
+				exitWithError "creating $CONFIGFILE failed" "$sectionName"
+			fi
 			# elif [[ -f /boot/[Cc]onfig* ]]; then
 			#     printLine "Config file found: $procConfig"
 			# 	cp "$TEMPLATEFILE" "$CONFIGFILE"
@@ -233,7 +233,7 @@ moveTemplate() {
 			exitWithError "We couldn't find a config file to use." "$sectionName"
 		fi
 	fi
-    writeErrorSectionFile "end" "$sectionName"
+	writeErrorSectionFile "end" "$sectionName"
 }
 
 modifyConfig() {
@@ -265,8 +265,8 @@ modifyConfig() {
 
 runOlddefconfig() {
 	local validation=$1
-    local sectionName="Validating config version"
-    writeErrorSectionFile "start" "$sectionName"
+	local sectionName="Validating config version"
+	writeErrorSectionFile "start" "$sectionName"
 	if [[ $validation -eq 1 ]]; then
 		printLine "make -j $cpuno V=0 O=${BUILDDIR} olddefconfig"
 		if ! make -j "$cpuno" V=0 O="$BUILDDIR" olddefconfig 2>>"$ERRORFILE"; then
@@ -275,7 +275,7 @@ runOlddefconfig() {
 	elif [[ $validation -eq 2 ]]; then
 		exitWithError "You are downgrading your kernel, this is not supported" "$sectionName"
 	fi
-    writeErrorSectionFile "end" "$sectionName"
+	writeErrorSectionFile "end" "$sectionName"
 }
 
 saveConfig() {
@@ -286,8 +286,8 @@ saveConfig() {
 }
 
 editConfig() {
-    local sectionName="editing config file"
-    writeErrorSectionFile "start" "$sectionName"
+	local sectionName="editing config file"
+	writeErrorSectionFile "start" "$sectionName"
 	if [[ $DRY -eq 0 ]]; then
 		if [[ $EDITCONFIG -eq 1 ]]; then
 			printLine "make -j $cpuno V=0 O=${BUILDDIR} menuconfig"
@@ -302,25 +302,25 @@ editConfig() {
 			exitWithError "'make xconfig' failed" "$sectionName"
 		fi
 	fi
-    writeErrorSectionFile "end" "$sectionName"
+	writeErrorSectionFile "end" "$sectionName"
 }
 
 buildKernel() {
 	if [[ $DRY -eq 0 ]]; then
-        local sectionName="compiling kernel"
-        writeErrorSectionFile "start" "$sectionName"
+		local sectionName="compiling kernel"
+		writeErrorSectionFile "start" "$sectionName"
 		printLine "make -j $cpuno V=0 O=${BUILDDIR} all"
 		if ! make -j "$cpuno" V=0 O="$BUILDDIR" all 2>>"$ERRORFILE" 1>/dev/null; then
 			exitWithError "'make all' failed" "$sectionName"
 		fi
-        writeErrorSectionFile "end" "$sectionName"
+		writeErrorSectionFile "end" "$sectionName"
 	fi
 }
 
 buildModules() {
 	if [[ $DRY -eq 0 ]]; then
-        local sectionName="creating kernel modules"
-        writeErrorSectionFile "start" "$sectionName"
+		local sectionName="creating kernel modules"
+		writeErrorSectionFile "start" "$sectionName"
 		if [[ -d $MODULESDIR ]]; then
 			printLine "Removing $MODULESDIR directory"
 			rm -rf "$MODULESDIR"
@@ -331,14 +331,14 @@ buildModules() {
 		if ! make -j "$cpuno" V=0 O="${BUILDDIR}" modules_install headers_install 2>>"$ERRORFILE" 1>/dev/null; then
 			exitWithError "'make modules_install headers_install' failed" "$sectionName"
 		fi
-        writeErrorSectionFile "end" "$sectionName"
+		writeErrorSectionFile "end" "$sectionName"
 	fi
 }
 
 usage() {
 	cat <<-EOF
 		Usage: $THISSCRIPT [options]
-
+		
 		Options:
 		--help                      : This output.
 		--edit                      : Either or not to run GUI tool to modify config file.
@@ -355,13 +355,13 @@ usage() {
 
 runExternalScript() {
 	if [[ $DRY -eq 0 && -x $ONDONE ]]; then
-        local sectionName="running external script"
-        writeErrorSectionFile "start" "$sectionName"
+		local sectionName="running external script"
+		writeErrorSectionFile "start" "$sectionName"
 		printLine "Calling ${ONDONE} ${FULLKERNELNAME} ${BUILDDIR}"
 		if ! $ONDONE "${FULLKERNELNAME}" "${BUILDDIR}"; then
 			exitWithError "This command \"${ONDONE} ${FULLKERNELNAME} ${BUILDDIR}\" failed" "$sectionName"
 		fi
-        writeErrorSectionFile "end" "$sectionName"
+		writeErrorSectionFile "end" "$sectionName"
 	fi
 }
 
@@ -423,8 +423,8 @@ getUserInput() {
 
 install() {
 	if [[ $DRY -eq 0 ]]; then
-        local sectionName="installing new kernel files"
-        writeErrorSectionFile "start" "$sectionName"
+		local sectionName="installing new kernel files"
+		writeErrorSectionFile "start" "$sectionName"
 		if [[ -f $BUILDDIR/System.map ]]; then
 			printLine "Copying $BUILDDIR/System.map -> /boot/System.map"
 			cp --remove-destination "$BUILDDIR/System.map" "/boot/System.map"
@@ -456,7 +456,7 @@ install() {
 			initrd /intel-ucode.img
 			initrd /initramfs-${FULLKERNELNAME}.img
 		EOF
-        writeErrorSectionFile "end" "$sectionName"
+		writeErrorSectionFile "end" "$sectionName"
 		printLine "Kernel ${FULLKERNELNAME} was successfully installed"
 	fi
 }
@@ -468,8 +468,8 @@ downloadSources() {
 		local tarPath
 		local prefix="linux-"
 		local suffic="\\.tar\\.xz"
-        local sectionName="downloading sources"
-        writeErrorSectionFile "start" "$sectionName"
+		local sectionName="downloading sources"
+		writeErrorSectionFile "start" "$sectionName"
 		tarFile="$(wget --output-document - --quiet https://www.kernel.org/ | grep -A 1 "latest_link" | grep -Eo "linux-[4-9]\\.[0-9]+\\.?[0-9]*\\.tar\\.xz")"
 		mayorVersion="$(echo "$tarFile" | cut -d'-' -f2 | cut -d'.' -f1)"
 		KERNELVERSION="${tarFile#$prefix}"
@@ -495,7 +495,7 @@ downloadSources() {
 		if ! tar -xf "$tarPath" -C "$BASESOURCEDIR" --overwrite; then
 			exitWithError "Untaring $tarPath failed" "$sectionName"
 		fi
-        writeErrorSectionFile "end" "$sectionName"
+		writeErrorSectionFile "end" "$sectionName"
 		setVariables
 		cd "$SOURCESDIR" || exit 2
 	else
