@@ -25,7 +25,7 @@ EDITCONFIG=0
 DOWNLOAD=0
 DRY=0
 SAVECONFIG=
-# ONDONE=
+ONDONE=
 
 vercomp() {
 	# FROM https://stackoverflow.com/questions/4023830/how-compare-two-strings-in-dot-separated-version-format-in-bash
@@ -33,8 +33,11 @@ vercomp() {
 	if [[ $1 == "$2" ]]; then
 		return 0
 	fi
-	local IFS=.
-	local i ver1=($1) ver2=($2)
+	local IFS='.'
+	local i ver1 ver2
+	read -r -a ver1 <<<"$1"
+	read -r -a ver2 <<<"$2"
+
 	# fill empty fields in ver1 with zeros
 	for ((i = ${#ver1[@]}; i < ${#ver2[@]}; i++)); do
 		ver1[i]=0
@@ -199,8 +202,8 @@ setbuilddir() {
 		mkdir "$BUILDDIR"
 	fi
 
-	printLine "make -j $cpuno V=0 O=$BUILDDIR distclean"
-	if ! make -j "$cpuno" V=0 O="$BUILDDIR" distclean 2>>"$ERRORFILE" 1>/dev/null; then
+	printLine "make -j${cpuno} V=0 O=$BUILDDIR distclean"
+	if ! make -j"${cpuno}" V=0 O="$BUILDDIR" distclean 2>>"$ERRORFILE" 1>/dev/null; then
 		exitWithError "pre cleaning process failed"
 	fi
 }
@@ -268,8 +271,8 @@ runOlddefconfig() {
 	local sectionName="Validating config version"
 	writeErrorSectionFile "start" "$sectionName"
 	if [[ $validation -eq 1 ]]; then
-		printLine "make -j $cpuno V=0 O=${BUILDDIR} olddefconfig"
-		if ! make -j "$cpuno" V=0 O="$BUILDDIR" olddefconfig 2>>"$ERRORFILE"; then
+		printLine "make -j${cpuno} V=0 O=${BUILDDIR} olddefconfig"
+		if ! make -j"${cpuno}" V=0 O="$BUILDDIR" olddefconfig 2>>"$ERRORFILE"; then
 			exitWithError "'make olddefconfig' failed" "$sectionName"
 		fi
 	elif [[ $validation -eq 2 ]]; then
@@ -281,7 +284,9 @@ runOlddefconfig() {
 saveConfig() {
 	if [[ -d $SAVECONFIG ]]; then
 		printLine "Copying ${CONFIGFILE} to $SAVECONFIG/config-${FULLKERNELNAME}"
-		cp --remove-destination "${CONFIGFILE}" "$SAVECONFIG/config-${FULLKERNELNAME}"
+		if ! cp --remove-destination "${CONFIGFILE}" "$SAVECONFIG/config-${FULLKERNELNAME}"; then
+			exitWithError "saving ${SAVECONFIG}/config-${FULLKERNELNAME} failed"
+		fi
 	fi
 }
 
@@ -290,15 +295,15 @@ editConfig() {
 	writeErrorSectionFile "start" "$sectionName"
 	if [[ $DRY -eq 0 ]]; then
 		if [[ $EDITCONFIG -eq 1 ]]; then
-			printLine "make -j $cpuno V=0 O=${BUILDDIR} menuconfig"
+			printLine "make -j${cpuno} V=0 O=${BUILDDIR} menuconfig"
 
-			if ! make -j "$cpuno" V=0 O="$BUILDDIR" menuconfig 2>>"$ERRORFILE"; then
+			if ! make -j"${cpuno}" V=0 O="$BUILDDIR" menuconfig 2>>"$ERRORFILE"; then
 				exitWithError "'make menuconfig' failed" "$sectionName"
 			fi
 		fi
 	else
-		printLine "make -j $cpuno V=0 O=${BUILDDIR} xconfig"
-		if ! make -j "$cpuno" V=0 O="$BUILDDIR" xconfig 2>>"$ERRORFILE"; then
+		printLine "make -j${cpuno} V=0 O=${BUILDDIR} xconfig"
+		if ! make -j"${cpuno}" V=0 O="$BUILDDIR" xconfig 2>>"$ERRORFILE"; then
 			exitWithError "'make xconfig' failed" "$sectionName"
 		fi
 	fi
@@ -309,8 +314,8 @@ buildKernel() {
 	if [[ $DRY -eq 0 ]]; then
 		local sectionName="compiling kernel"
 		writeErrorSectionFile "start" "$sectionName"
-		printLine "make -j $cpuno V=0 O=${BUILDDIR} all"
-		if ! make -j "$cpuno" V=0 O="$BUILDDIR" all 2>>"$ERRORFILE" 1>/dev/null; then
+		printLine "make -j${cpuno} V=0 O=${BUILDDIR} all"
+		if ! make -j"${cpuno}" V=0 O="$BUILDDIR" all 2>>"$ERRORFILE" 1>/dev/null; then
 			exitWithError "'make all' failed" "$sectionName"
 		fi
 		writeErrorSectionFile "end" "$sectionName"
@@ -326,9 +331,9 @@ buildModules() {
 			rm -rf "$MODULESDIR"
 		fi
 
-		printLine "make -j $cpuno V=0 O=${BUILDDIR} modules_install headers_install"
+		printLine "make -j${cpuno} V=0 O=${BUILDDIR} modules_install headers_install"
 
-		if ! make -j "$cpuno" V=0 O="${BUILDDIR}" modules_install headers_install 2>>"$ERRORFILE" 1>/dev/null; then
+		if ! make -j"${cpuno}" V=0 O="${BUILDDIR}" modules_install headers_install 2>>"$ERRORFILE" 1>/dev/null; then
 			exitWithError "'make modules_install headers_install' failed" "$sectionName"
 		fi
 		writeErrorSectionFile "end" "$sectionName"
@@ -513,7 +518,7 @@ getTemplateVersion
 vercomp "$KERNELVERSION" "$TEMPLATEVERSION"
 versionValidation=$?
 runOlddefconfig $versionValidation
-modifyConfig
+# modifyConfig
 editConfig
 buildKernel
 buildModules
