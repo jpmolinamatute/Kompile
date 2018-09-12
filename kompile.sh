@@ -247,9 +247,9 @@ modifyConfig() {
 
 	rootfstype="$(lsblk -o MOUNTPOINT,FSTYPE | grep -E "^/ " | awk '{print $2}')"
 	rootuuid="$(lsblk -o MOUNTPOINT,PARTUUID | grep -E "^/ " | awk '{print $2}')"
-	swapuuid="$(lsblk -o FSTYPE,KNAME | grep -E "^swap " | awk '{print $2}')"
+	swapuuid="$(lsblk -o FSTYPE,PARTUUID | grep -E "^swap " | awk '{print $2}')"
 	txt="CONFIG_CMDLINE_BOOL=y\\n"
-	txt="${txt}CONFIG_CMDLINE=\"rootfstype=${rootfstype} root=PARTUUID=${rootuuid} rw quiet\"\\n"
+	txt="${txt}CONFIG_CMDLINE=\"rootfstype=${rootfstype} root=PARTUUID=${rootuuid} rw\"\\n"
 	# txt="${txt}CONFIG_CMDLINE_OVERRIDE=y\n"
 
 	# sed -Ei "s/^#? ?CONFIG_CMDLINE_OVERRIDE(=[ynm]| is not set)//" "$CONFIGFILE"
@@ -262,7 +262,7 @@ modifyConfig() {
 		sed -Ei "s/^CONFIG_LOCALVERSION=\".*\"$/CONFIG_LOCALVERSION=\"-${KERNELNAME}-${TRACKVERSION}\"/" "$CONFIGFILE"
 	fi
 
-	sed -Ei "s/^#? ?CONFIG_PM_STD_PARTITION[ =].*$/CONFIG_PM_STD_PARTITION=\"\\/dev\\/${swapuuid}\"/" "$CONFIGFILE"
+	sed -Ei "s/^#? ?CONFIG_PM_STD_PARTITION[ =].*$/CONFIG_PM_STD_PARTITION=\"PARTUUID=${swapuuid}\"/" "$CONFIGFILE"
 	sed -Ei "s/^#? ?CONFIG_DEFAULT_HOSTNAME[ =].*$/CONFIG_DEFAULT_HOSTNAME=\"${KERNELNAME}\"/" "$CONFIGFILE"
 }
 
@@ -518,7 +518,7 @@ getTemplateVersion
 vercomp "$KERNELVERSION" "$TEMPLATEVERSION"
 versionValidation=$?
 runOlddefconfig $versionValidation
-# modifyConfig
+modifyConfig
 editConfig
 buildKernel
 buildModules
